@@ -2,7 +2,12 @@ services:
   - type: web
     name: ippishr-backend
     env: node
-    buildCommand: npm install && npm run build
+    plan: free
+    region: ohio 
+    buildCommand: |
+      npm install
+      npx prisma generate
+      npm run build
     startCommand: node dist/server.js
     envVars:
       - key: NODE_ENV
