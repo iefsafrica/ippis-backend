@@ -1,0 +1,345 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model admin_permissions {
+  id         Int      @id @default(autoincrement())
+  role       String   @db.VarChar(20)
+  resource   String   @db.VarChar(50)
+  action     String   @db.VarChar(20)
+  is_allowed Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+
+  @@unique([role, resource, action])
+}
+
+model admin_sessions {
+  id            Int         @id @default(autoincrement())
+  admin_id      Int
+  session_token String      @unique @db.VarChar(255)
+  expires_at    DateTime    @db.Timestamp(6)
+  created_at    DateTime    @default(now()) @db.Timestamp(6)
+  ip_address    String?     @db.VarChar(50)
+  user_agent    String?
+  admin_users   admin_users @relation(fields: [admin_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model admin_users {
+  id                      Int                       @id @default(autoincrement())
+  username                String                    @unique @db.VarChar(50)
+  email                   String                    @unique @db.VarChar(100)
+  password_hash           String                    @db.VarChar(255)
+  full_name               String                    @db.VarChar(100)
+  role                    String                    @default("admin") @db.VarChar(20)
+  is_active               Boolean                   @default(true)
+  last_login              DateTime?                 @db.Timestamp(6)
+  created_at              DateTime                  @default(now()) @db.Timestamp(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamp(6)
+  admin_sessions          admin_sessions[]
+  dashboard_notifications dashboard_notifications[]
+  dashboard_widgets       dashboard_widgets[]
+  password_reset_tokens   password_reset_tokens?
+}
+
+model dashboard_notifications {
+  id           Int          @id @default(autoincrement())
+  title        String       @db.VarChar(100)
+  message      String
+  type         String       @db.VarChar(20)
+  is_read      Boolean      @default(false)
+  recipient_id Int?
+  created_at   DateTime     @default(now()) @db.Timestamp(6)
+  expires_at   DateTime?    @db.Timestamp(6)
+  action_url   String?
+  admin_users  admin_users? @relation(fields: [recipient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model dashboard_widgets {
+  id              Int         @id @default(autoincrement())
+  admin_id        Int
+  widget_type     String      @db.VarChar(50)
+  widget_position Int
+  widget_size     String      @default("medium") @db.VarChar(20)
+  widget_config   Json        @default("{}")
+  is_visible      Boolean     @default(true)
+  created_at      DateTime    @default(now()) @db.Timestamp(6)
+  updated_at      DateTime    @default(now()) @db.Timestamp(6)
+  admin_users     admin_users @relation(fields: [admin_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model document_uploads {
+  id                            Int           @id @default(autoincrement())
+  registration_id               String        @unique @db.VarChar(50)
+  appointment_letter_path       String        @db.VarChar(255)
+  educational_certificates_path String        @db.VarChar(255)
+  promotion_letter_path         String?       @db.VarChar(255)
+  other_documents_path          String?       @db.VarChar(255)
+  profile_image_path            String        @db.VarChar(255)
+  signature_path                String        @db.VarChar(255)
+  upload_date                   DateTime      @default(now()) @db.Timestamp(6)
+  status                        String?       @db.VarChar(32)
+  registrations                 registrations @relation(fields: [registration_id], references: [registration_Id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model employees {
+  id         String   @id @db.VarChar(20)
+  name       String   @db.VarChar(255)
+  email      String   @unique @db.VarChar(255)
+  department String   @db.VarChar(100)
+  position   String   @db.VarChar(100)
+  status     String   @default("active") @db.VarChar(20)
+  join_date  DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+}
+
+model employment_info {
+  id                        Int           @id @default(autoincrement())
+  registration_id           String        @unique @db.VarChar(50)
+  employment_id_no          String        @db.VarChar(50)
+  service_no                String        @db.VarChar(50)
+  file_no                   String        @db.VarChar(50)
+  rank_position             String        @db.VarChar(100)
+  department                String        @db.VarChar(100)
+  organization              String        @db.VarChar(200)
+  employment_type           String        @db.VarChar(50)
+  probation_period          String        @db.VarChar(20)
+  work_location             String        @db.VarChar(100)
+  date_of_first_appointment DateTime      @db.Date
+  gl                        String        @db.VarChar(10)
+  step                      String        @db.VarChar(10)
+  salary_structure          String        @db.VarChar(20)
+  cadre                     String        @db.VarChar(50)
+  name_of_bank              String        @db.VarChar(100)
+  account_number            String        @db.VarChar(20)
+  pfa_name                  String        @db.VarChar(100)
+  rsapin                    String        @db.VarChar(50)
+  educational_background    String?
+  certifications            String?
+  registrations             registrations @relation(fields: [registration_id], references: [registration_Id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model password_reset_tokens {
+  id          Int         @id @default(autoincrement())
+  user_id     Int         @unique
+  token       String      @db.VarChar(255)
+  expires_at  DateTime    @db.Timestamp(6)
+  created_at  DateTime    @default(now()) @db.Timestamp(6)
+  admin_users admin_users @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([token], map: "idx_password_reset_tokens_token")
+}
+
+model pending_employees {
+  id              Int       @id @default(autoincrement())
+  registration_id String?   @unique @default(dbgenerated("(gen_random_uuid())::text"))
+  surname         String
+  firstname       String
+  email           String
+  department      String?
+  position        String?
+  status          String    @default("pending_approval")
+  source          String    @default("form")
+  submission_date DateTime? @default(now()) @db.Timestamptz(6)
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+  missing_fields  Json?
+  metadata        Json?
+}
+
+model personal_info {
+  id                         Int           @id @default(autoincrement())
+  registration_id            String        @unique @db.VarChar(50)
+  title                      String        @db.VarChar(10)
+  surname                    String        @db.VarChar(100)
+  first_name                 String        @db.VarChar(100)
+  other_names                String?       @db.VarChar(100)
+  phone_number               String        @db.VarChar(20)
+  email                      String        @db.VarChar(100)
+  date_of_birth              DateTime      @db.Date
+  sex                        String        @db.VarChar(10)
+  marital_status             String        @db.VarChar(20)
+  state_of_origin            String        @db.VarChar(50)
+  lga                        String        @db.VarChar(100)
+  state_of_residence         String        @db.VarChar(50)
+  address_state_of_residence String
+  next_of_kin_name           String        @db.VarChar(200)
+  next_of_kin_relationship   String        @db.VarChar(50)
+  next_of_kin_phone_number   String        @db.VarChar(20)
+  next_of_kin_address        String
+  registrations              registrations @relation(fields: [registration_id], references: [registration_Id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model registration_comments {
+  id              Int           @id @default(autoincrement())
+  registration_id String        @db.VarChar(50)
+  comment_text    String
+  author          String?       @db.VarChar(100)
+  created_at      DateTime      @default(now()) @db.Timestamp(6)
+  registrations   registrations @relation(fields: [registration_id], references: [registration_Id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model registration_history {
+  id              Int            @id @default(autoincrement())
+  registration_id String?        @db.VarChar(50)
+  action          String         @db.VarChar(50)
+  details         String?
+  performed_by    String?        @db.VarChar(100)
+  performed_at    DateTime       @default(now()) @db.Timestamp(6)
+  registrations   registrations? @relation(fields: [registration_id], references: [registration_Id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model registrations {
+  id                    Int                     @id @default(autoincrement())
+  registration_Id       String                  @unique @default(dbgenerated("gen_random_uuid()")) @map("registration_id") @db.VarChar(50)
+  nin                   String?                 @unique
+  status                String                  @default("draft") @db.VarChar(20)
+  current_step          String                  @default("verification") @db.VarChar(20)
+  declaration           Boolean?                @default(false)
+  created_at            DateTime                @default(now()) @db.Timestamp(6)
+  updated_at            DateTime                @default(now()) @db.Timestamp(6)
+  submitted_at          DateTime?               @db.Timestamp(6)
+  approved_at           DateTime?               @db.Timestamp(6)
+  rejected_at           DateTime?               @db.Timestamp(6)
+  VerificationData      VerificationData?
+  document_uploads      document_uploads?
+  employment_info       employment_info?
+  personal_info         personal_info?
+  registration_comments registration_comments[]
+  registration_history  registration_history[]
+}
+
+model VerificationData {
+  id                    String        @id @default(uuid())
+  nin                   String?       @unique
+  vnin                  String?
+  title                 String?
+  surname               String?
+  email                 String?
+  gender                String?
+  state_of_origin       String?
+  religion              String?
+  profession            String?
+  residence_address     String?
+  residence_lga         String?
+  residence_state       String?
+  nok_surname           String?
+  nok_lga               String?
+  nok_state             String?
+  nok_town              String?
+  maiden_name           String?
+  tracking_id           String?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime
+  birthcountry          String?
+  birthdate             String?
+  birthlga              String?
+  birthstate            String?
+  central_iD            String?
+  educationallevel      String?
+  employmentstatus      String?
+  firstname             String?
+  heigth                String?
+  lga_origin            String?
+  maritalstatus         String?
+  middlename            String?
+  nok_address1          String?
+  nok_address2          String?
+  nok_firstname         String?
+  nok_middlename        String?
+  nok_postalcode        String?
+  nspokenlang           String?
+  ospokenlang           String?
+  pfirstname            String?
+  photo                 String?
+  pmiddlename           String?
+  psurname              String?
+  residence_AdressLine1 String?
+  residence_Town        String?
+  residencestatus       String?
+  self_origin_lga       String?
+  self_origin_place     String?
+  self_origin_state     String?
+  signature             String?
+  spoken_language       String?
+  telephoneno           String?
+  userid                String?
+  registration_id       Int           @unique
+  registration          registrations @relation(fields: [registration_id], references: [id])
+}
+
+model Account {
+  id              String   @id @default(uuid())
+  accountName     String
+  accountNumber   String
+  bankName        String
+  accountType     String
+  currency        String
+  balance         Float
+  openingDate     DateTime
+  status          String
+  branchCode      String?
+  swiftCode       String?
+  description     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  previousBalance Float?
+}
+
+model employee_payments {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employee_id          String    @db.Uuid
+  payment_type         String    @db.VarChar(50)
+  payment_method       String    @db.VarChar(50)
+  payment_date         DateTime  @db.Date
+  basic_salary         Decimal?  @default(0) @db.Decimal(12, 2)
+  house_rent_allowance Decimal?  @default(0) @db.Decimal(12, 2)
+  medical_allowance    Decimal?  @default(0) @db.Decimal(12, 2)
+  travel_allowance     Decimal?  @default(0) @db.Decimal(12, 2)
+  dearness_allowance   Decimal?  @default(0) @db.Decimal(12, 2)
+  provident_fund       Decimal?  @default(0) @db.Decimal(12, 2)
+  income_tax           Decimal?  @default(0) @db.Decimal(12, 2)
+  health_insurance     Decimal?  @default(0) @db.Decimal(12, 2)
+  loan_deduction       Decimal?  @default(0) @db.Decimal(12, 2)
+  comments             String?
+  created_at           DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model salary_budget {
+  id                      Int       @id @default(autoincrement())
+  staff_id                String?   @db.VarChar(50)
+  legacy_id               String?   @db.VarChar(50)
+  full_name               String?   @db.VarChar(150)
+  job_title               String?   @db.VarChar(100)
+  command                 String?   @db.VarChar(100)
+  zone                    String?   @db.VarChar(100)
+  location                String?   @db.VarChar(100)
+  unit                    String?   @db.VarChar(100)
+  reference_id            String?   @db.VarChar(50)
+  grade                   String?   @db.VarChar(20)
+  grade_step              String?   @db.VarChar(10)
+  bank_name               String?   @db.VarChar(100)
+  account_number          String?   @db.VarChar(30)
+  pension_administrator   String?   @db.VarChar(100)
+  pension_pin             String?   @db.VarChar(50)
+  tax                     String?   @db.VarChar(50)
+  created_at              DateTime? @default(now()) @db.Timestamp(6)
+  updated_at              DateTime? @default(now()) @db.Timestamp(6)
+  tax_id                  String?   @db.VarChar(100)
+  basic_non_salary        Decimal?  @db.Decimal
+  basic_salary            Decimal?  @db.Decimal
+  conhess_shift_allowance Decimal?  @db.Decimal
+  conmess_call_duty       Decimal?  @db.Decimal
+  conmess_minimum_wage    Decimal?  @db.Decimal
+  conmess_non_clinical    Decimal?  @db.Decimal
+  conposs_minimum_wage    Decimal?  @db.Decimal
+  conpss_minimum_wage     Decimal?  @db.Decimal
+  conpss_peculiar         Decimal?  @db.Decimal
+}
