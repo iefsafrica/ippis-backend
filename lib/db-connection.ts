@@ -1,6 +1,7 @@
-﻿import { Pool } from 'pg'
+﻿// Database connection with type assertion
+const pg = require('pg')
 
-export const pool = new Pool({
+export const pool = new (pg as any).Pool({
   connectionString: process.env.DATABASE_URL,
 })
 
