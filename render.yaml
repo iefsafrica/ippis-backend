@@ -1,6 +1,9 @@
 services:
   - type: web
-    name: my-api
+    name: ippishr-backend
     env: node
-    buildCommand: npm install
-    startCommand: node server.js
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
