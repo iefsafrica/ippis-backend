@@ -1,3 +1,4 @@
+@"
 services:
   - type: web
     name: ippishr-backend
@@ -12,3 +13,6 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+"@ | Out-File -FilePath render.yaml -Encoding utf8
+
+Write-Host "✓ Updated render.yaml to use npm explicitly"
