@@ -1,18 +1,14 @@
-@"
-services:
+﻿services:
   - type: web
     name: ippishr-backend
     env: node
     plan: free
     region: ohio 
     buildCommand: |
-      npm install
+      npm ci
       npx prisma generate
       npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
-"@ | Out-File -FilePath render.yaml -Encoding utf8
-
-Write-Host "✓ Updated render.yaml to use npm explicitly"

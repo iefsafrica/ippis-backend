@@ -1,15 +1,14 @@
-{
+﻿{
     "name":  "ippishr-backend",
     "version":  "1.0.0",
-    "main":  "lib/server.js",
     "private":  true,
     "type":  "commonjs",
     "scripts":  {
-                    "dev":  "next dev",
+                    "prisma:generate":  "npx prisma generate",
                     "build":  "next build",
-                    "start":  "next start",
+                    "dev":  "next dev",
                     "postinstall":  "prisma generate",
-                    "prisma:generate":  "npx prisma generate"
+                    "start":  "next start"
                 },
     "prisma":  {
                    "schema":  "./lib/generated/prisma/schema.prisma"
