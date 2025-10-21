@@ -314,6 +314,6 @@
     ".next\\required-server-files.json"
   ],
   "ignore": [
-    "node_modules\\next\\dist\\compiled\\@ampproject\\toolbox-optimizer\\**\\*"
+    "node_modules\\.pnpm\\next@15.5.6_react-dom@19.2.0_react@19.2.0__react@19.2.0\\node_modules\\next\\dist\\compiled\\@ampproject\\toolbox-optimizer\\**\\*"
   ]
 }

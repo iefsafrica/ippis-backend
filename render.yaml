@@ -5,10 +5,10 @@
     plan: free
     region: ohio 
     buildCommand: |
-      npm ci
+      pnpm install --no-frozen-lockfile
       npx prisma generate
-      npm run build
-    startCommand: npm start
+      pnpm run build
+    startCommand: pnpm start
     envVars:
       - key: NODE_ENV
         value: production
