@@ -4,31 +4,45 @@
   "main": "lib/server.js",
   "private": true,
   "type": "commonjs",
-"scripts": {
-  "dev": "ts-node-dev --respawn --transpile-only --require ./tsconfig-paths-bootstrap.js server.ts",
-  "build": "tsc",
-  "start": "node dist/server.js",
-  "postinstall": "prisma generate",
-  "prisma:generate": "npx prisma generate"
-},
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "postinstall": "prisma generate",
+    "prisma:generate": "npx prisma generate"
+  },
   "prisma": {
     "schema": "./lib/generated/prisma/schema.prisma"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
     "@prisma/client": "^6.10.1",
     "axios": "^1.10.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
+    "crypto-js": "^4.2.0",
+    "date-fns": "^4.1.0",
     "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.44.6",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "prisma": "^6.10.1"
+    "next": "^15.5.6",
+    "next-auth": "^4.24.11",
+    "nodemailer": "^6.10.1",
+    "pg": "^8.16.3",
+    "prisma": "^6.10.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "uuid": "^13.0.0",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^22.15.3",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "tsconfig-paths": "^4.2.0",

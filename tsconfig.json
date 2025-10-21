@@ -4,8 +4,12 @@
     "outDir": "./dist",
     "target": "ES2020",
     "module": "commonjs",
-    "lib": ["esnext"],
-    "types": ["node"],
+    "lib": [
+      "esnext"
+    ],
+    "types": [
+      "node"
+    ],
     "sourceMap": true,
     "declaration": false,
     "declarationMap": false,
@@ -16,11 +20,30 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "baseUrl": ".",          
+    "baseUrl": ".",
     "paths": {
-      "@lib/*": ["lib/*"]
-    }
+      "@lib/*": [
+        "lib/*"
+      ]
+    },
+    "allowJs": true,
+    "noEmit": true,
+    "incremental": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "jsx": "preserve",
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-  "include": ["**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "**/*.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }
