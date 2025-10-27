@@ -13,26 +13,25 @@ interface NetAppsNINResponse {
 }
 
 const NIN_REGEX = /^\d{11}$/;
-const VERIFICATION_URL = "https://kyc-api.netapps.ng/api/v1/kyc/nin";
+const VERIFICATION_URL = process.env.NETAPPS_URL || "https://kyc-api.netapps.ng/api/v1/kyc/nin";
 
 /**
- * Validates NIN format and verifies it with NetApps KYC API
+ *  Verifies NIN with NetApps KYC API
  */
 export async function verifyNIN(nin: string): Promise<VerificationResult> {
-  // Validate input format
+  // Step 1: Validate NIN format
   const validationError = validateNIN(nin);
-  if (validationError) {
-    return createErrorResult(validationError);
-  }
+  if (validationError) return createErrorResult(validationError);
 
-  // Check API key
-  const apiKey = process.env.NETAPPS_SECRET_KEY;
-  if (!apiKey) {
-    return createErrorResult("NETAPPS_SECRET_KEY is missing in environment.");
-  }
+  // Step 2: Get and validate API key
+  const apiKey = process.env.NETAPPS_SECRET_KEY?.trim();
+  if (!apiKey) return createErrorResult("Missing NETAPPS_SECRET_KEY in environment.");
 
   try {
-    // Make API request
+    // Step 3: Send verification request with timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000); // 15 seconds timeout
+
     const response = await fetch(VERIFICATION_URL, {
       method: "POST",
       headers: {
@@ -40,63 +39,69 @@ export async function verifyNIN(nin: string): Promise<VerificationResult> {
         "x-secret-key": apiKey,
       },
       body: JSON.stringify({ nin }),
+      signal: controller.signal,
     });
 
-    // Parse response with proper type handling
-    const responseData = await response.json();
-    const data = responseData as NetAppsNINResponse;
-    
+    clearTimeout(timeout);
+
+    // Step 4: Handle HTTP errors
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("NIN verification HTTP error:", response.status, text);
+      return createErrorResult(`API request failed (${response.status}): ${text}`);
+    }
+
+    // Step 5: Safely parse response
+    let data: NetAppsNINResponse;
+try {
+  data = (await response.json()) as NetAppsNINResponse;
+} catch {
+  const raw = await response.text();
+  console.error("Invalid JSON response from NetApps:", raw);
+  return createErrorResult("Invalid JSON response from verification API.");
+}
+
+
     console.log("NIN verification response:", data);
 
-    // Process API response
+    // Step 6: Process response
     return processAPIResponse(data);
   } catch (error: any) {
-    console.error("Error verifying NIN:", error?.message || error);
+    if (error.name === "AbortError") {
+      return createErrorResult("Verification request timed out. Please try again.");
+    }
+    console.error(" Error verifying NIN:", error);
     return createErrorResult("Something went wrong during NIN verification.");
   }
 }
 
 /**
- * Validates NIN format
+ * Validates NIN input format
  */
 function validateNIN(nin: string): string | null {
-  if (!nin || typeof nin !== 'string') {
-    return "NIN must be a string.";
-  }
-
-  if (!NIN_REGEX.test(nin.trim())) {
-    return "Invalid NIN format. NIN must be exactly 11 digits.";
-  }
-
+  if (!nin || typeof nin !== "string") return "NIN must be a string.";
+  if (!NIN_REGEX.test(nin.trim())) return "Invalid NIN format. Must be exactly 11 digits.";
   return null;
 }
 
 /**
- * Processes the API response and returns standardized result
+ * Interprets API response
  */
 function processAPIResponse(data: NetAppsNINResponse): VerificationResult {
   const status = data?.status?.toLowerCase();
-  const hasValidData = data?.data && typeof data.data === 'object';
+  const hasValidData = data?.data && typeof data.data === "object";
 
   if (status === "successful" && hasValidData) {
     return {
       verified: true,
-      message: data.message || "NIN verified successfully",
+      message: data.message || "NIN verified successfully.",
       data: data.data,
     };
   }
 
-  return {
-    verified: false,
-    message: data?.message || data?.error || "NIN verification failed",
-    data: null,
-  };
-}
+  // Handle specific known messages from API
+  const message = data?.message || data?.error || "NIN verification failed.";
 
-/**
- * Creates a standardized error result
- */
-function createErrorResult(message: string): VerificationResult {
   return {
     verified: false,
     message,
@@ -105,9 +110,15 @@ function createErrorResult(message: string): VerificationResult {
 }
 
 /**
- * BVN verification placeholder
+ *  Creates standardized error result
+ */
+function createErrorResult(message: string): VerificationResult {
+  return { verified: false, message, data: null };
+}
+
+/**
+ * Placeholder for BVN verification (to be implemented)
  */
 export async function verifyBVN(bvn: string): Promise<VerificationResult> {
-  // TODO: Implement BVN verification when ready
-  return createErrorResult("BVN verification not implemented yet");
+  return createErrorResult("BVN verification not implemented yet.");
 }

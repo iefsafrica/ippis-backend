@@ -1,3 +1,4 @@
 {
-  "/api/verify/nin/route": "app/api/verify/nin/route.js"
+  "/api/admin/dashboard/chart/route": "app/api/admin/dashboard/chart/route.js",
+  "/_not-found/page": "app/_not-found/page.js"
 }

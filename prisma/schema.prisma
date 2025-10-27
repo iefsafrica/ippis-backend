@@ -216,63 +216,62 @@ model registrations {
 }
 
 model VerificationData {
-  id                    String        @id @default(uuid())
-  nin                   String?       @unique
-  vnin                  String?
-  title                 String?
-  surname               String?
-  email                 String?
-  gender                String?
-  state_of_origin       String?
-  religion              String?
-  profession            String?
-  residence_address     String?
-  residence_lga         String?
-  residence_state       String?
-  nok_surname           String?
-  nok_lga               String?
-  nok_state             String?
-  nok_town              String?
-  maiden_name           String?
-  tracking_id           String?
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime
-  birthcountry          String?
-  birthdate             String?
-  birthlga              String?
-  birthstate            String?
-  central_iD            String?
-  educationallevel      String?
-  employmentstatus      String?
-  firstname             String?
-  heigth                String?
-  lga_origin            String?
-  maritalstatus         String?
-  middlename            String?
-  nok_address1          String?
-  nok_address2          String?
-  nok_firstname         String?
-  nok_middlename        String?
-  nok_postalcode        String?
-  nspokenlang           String?
-  ospokenlang           String?
-  pfirstname            String?
-  photo                 String?
-  pmiddlename           String?
-  psurname              String?
-  residence_AdressLine1 String?
-  residence_Town        String?
-  residencestatus       String?
-  self_origin_lga       String?
-  self_origin_place     String?
-  self_origin_state     String?
-  signature             String?
-  spoken_language       String?
-  telephoneno           String?
-  userid                String?
-  registration_id       Int           @unique
-  registration          registrations @relation(fields: [registration_id], references: [id])
+  id                      String        @id @default(uuid())
+  nin                     String?       @unique
+  vnin                    String?
+  title                   String?
+  surname                 String?
+  firstname               String?
+  middlename              String?
+  maiden_name             String?
+  psurname                String?
+  pfirstname              String?
+  pmiddlename             String?
+  email                   String?
+  gender                  String?
+  state_of_origin         String?
+  lga_origin              String?
+  religion                String?
+  profession              String?
+  residence_address       String?
+  residence_address_line1 String?
+  residence_town          String?
+  residence_state         String?
+  residencestatus         String?
+  telephoneno             String?
+  birthcountry            String?
+  birthdate               DateTime?
+  birthlga                String?
+  birthstate              String?
+  central_id              String?
+  educationallevel        String?
+  employmentstatus        String?
+  heigth                  String?
+  maritalstatus           String?
+  spoken_language         String?
+  nspokenlang             String?
+  ospokenlang             String?
+  nok_surname             String?
+  nok_firstname           String?
+  nok_middlename          String?
+  nok_lga                 String?
+  nok_state               String?
+  nok_town                String?
+  nok_postalcode          String?
+  nok_address1            String?
+  nok_address2            String?
+  photo                   Bytes?
+  signature               Bytes?
+  tracking_id             String?
+  userid                  String?
+  registration_id         String?          @unique
+  registration            registrations     @relation(fields: [registration_id], references: [id])
+  created_at              DateTime          @default(now())
+  updated_at              DateTime          @updatedAt
+  @@map("verification_data")
 }
+
+
 
 model Account {
   id              String   @id @default(uuid())

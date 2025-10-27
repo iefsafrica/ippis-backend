@@ -1,1 +1,0 @@
-globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST["/api/verify/nin/route"]={"moduleLoading":{"prefix":"/_next/"},"ssrModuleMapping":{},"edgeSSRModuleMapping":{},"clientModules":{},"entryCSSFiles":{"C:\\Users\\PC\\ippis-backend\\":[],"C:\\Users\\PC\\ippis-backend\\app\\api\\verify\\nin\\route":[]},"rscModuleMapping":{},"edgeRscModuleMapping":{}}
