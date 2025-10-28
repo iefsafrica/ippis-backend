@@ -106,7 +106,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ✅ Handle preflight OPTIONS requests
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req)
 }
