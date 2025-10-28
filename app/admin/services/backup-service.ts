@@ -1,4 +1,4 @@
-﻿// Backup service placeholder
+﻿
 export class BackupService {
   static async listBackups() { return [] }
   static async createBackup() { return { id: 'backup-1', status: 'success' } }
