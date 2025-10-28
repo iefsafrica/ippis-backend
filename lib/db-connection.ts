@@ -1,4 +1,4 @@
-﻿// Database connection with type assertion
+﻿
 const pg = require('pg')
 
 export const pool = new (pg as any).Pool({
