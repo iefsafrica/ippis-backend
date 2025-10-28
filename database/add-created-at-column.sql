@@ -1,4 +1,4 @@
--- Check if created_at column exists, if not add it
+
 DO $$
 BEGIN
     IF NOT EXISTS (
