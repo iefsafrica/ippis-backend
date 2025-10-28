@@ -4,6 +4,19 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/dashboard/stats/route.js"
+<<<<<<< HEAD
+=======
+    ],
+    "/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/layout.js"
+    ],
+    "/api/admin/dashboard/recent/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/dashboard/recent/route.js"
+>>>>>>> 6f8b000d3c0e7a383f1a310caaf9bda749fc6eaa
     ]
   }
 }

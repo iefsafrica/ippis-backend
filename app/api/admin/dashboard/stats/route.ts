@@ -1,20 +1,20 @@
-﻿import { neon } from "@neondatabase/serverless"
+import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "../../../../../lib/cors"
 import { NextRequest } from "next/server"
 
-type TableNameRow = { table_name: string }
+type TableNameRow = { table_name: string };
 type EmployeesStatsRow = {
-  total_employees: string
-  active_employees: string
-}
+  total_employees: string;
+  active_employees: string;
+};
 type PendingEmployeesStatsRow = {
-  pending_employees: string
-}
+  pending_employees: string;
+};
 type DocumentsStatsRow = {
-  pending_documents: string
-  verified_documents: string
-  rejected_documents: string
-}
+  pending_documents: string;
+  verified_documents: string;
+  rejected_documents: string;
+};
 
 export async function GET(req: NextRequest) {
   try {
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
       pendingDocuments: 0,
       verifiedDocuments: 0,
       rejectedDocuments: 0,
-    }
+    };
 
     // Safe query helper
     async function queryFirstRow<T>(query: string) {
@@ -55,25 +55,25 @@ export async function GET(req: NextRequest) {
     if (tables.includes("employees")) {
       const row = await queryFirstRow<EmployeesStatsRow>(`
         SELECT 
-          COUNT(*) as total_employees,
-          COUNT(CASE WHEN status = 'active' THEN 1 END) as active_employees
-        FROM employees
-      `)
+          COUNT(*) AS total_employees,
+          COUNT(CASE WHEN status = 'active' THEN 1 END) AS active_employees
+        FROM employees;
+      `);
       if (row) {
-        stats.totalEmployees = Number(row.total_employees)
-        stats.activeEmployees = Number(row.active_employees)
+        stats.totalEmployees = Number(row.total_employees);
+        stats.activeEmployees = Number(row.active_employees);
       }
     }
 
     // Pending employees
     if (tables.includes("pending_employees")) {
       const row = await queryFirstRow<PendingEmployeesStatsRow>(`
-        SELECT COUNT(*) as pending_employees
-        FROM pending_employees 
-        WHERE status = 'pending_approval'
-      `)
+        SELECT COUNT(*) AS pending_employees
+        FROM pending_employees
+        WHERE status = 'pending_approval';
+      `);
       if (row) {
-        stats.pendingEmployees = Number(row.pending_employees)
+        stats.pendingEmployees = Number(row.pending_employees);
       }
     }
 
@@ -82,20 +82,20 @@ export async function GET(req: NextRequest) {
       ? "documents"
       : tables.includes("document_uploads")
       ? "document_uploads"
-      : null
+      : null;
 
     if (docTable) {
       const row = await queryFirstRow<DocumentsStatsRow>(`
         SELECT
-          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_documents,
-          COUNT(CASE WHEN status = 'verified' THEN 1 END) as verified_documents,
-          COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_documents
-        FROM ${docTable}
-      `)
+          COUNT(CASE WHEN status = 'pending' THEN 1 END) AS pending_documents,
+          COUNT(CASE WHEN status = 'verified' THEN 1 END) AS verified_documents,
+          COUNT(CASE WHEN status = 'rejected' THEN 1 END) AS rejected_documents
+        FROM ${docTable};
+      `);
       if (row) {
-        stats.pendingDocuments = Number(row.pending_documents)
-        stats.verifiedDocuments = Number(row.verified_documents)
-        stats.rejectedDocuments = Number(row.rejected_documents)
+        stats.pendingDocuments = Number(row.pending_documents);
+        stats.verifiedDocuments = Number(row.verified_documents);
+        stats.rejectedDocuments = Number(row.rejected_documents);
       }
     }
 
