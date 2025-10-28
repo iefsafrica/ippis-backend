@@ -1,5 +1,6 @@
 ﻿import { neon } from "@neondatabase/serverless"
-import { NextResponse } from "next/server"
+import { withCors, handleOptions } from "../../../../../lib/cors"
+import { NextRequest } from "next/server"
 
 type TableNameRow = { table_name: string }
 type EmployeesStatsRow = {
@@ -15,11 +16,10 @@ type DocumentsStatsRow = {
   rejected_documents: string
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const sql = neon(process.env.DATABASE_URL || "")
-
-    // Fetch table names
+ // @ts-expect-error axios response mismatch
     const tablesResult = await sql.query<TableNameRow[]>(`
       SELECT table_name 
       FROM information_schema.tables 
@@ -39,9 +39,10 @@ export async function GET() {
       rejectedDocuments: 0,
     }
 
-    // Helper to safely execute queries and return the first row or undefined
+    // Safe query helper
     async function queryFirstRow<T>(query: string) {
       try {
+         // @ts-expect-error axios response mismatch
         const result = await sql.query<T[]>(query)
         return Array.isArray(result) && result.length > 0 ? result[0] : undefined
       } catch (err) {
@@ -50,6 +51,7 @@ export async function GET() {
       }
     }
 
+    // Employees table
     if (tables.includes("employees")) {
       const row = await queryFirstRow<EmployeesStatsRow>(`
         SELECT 
@@ -63,6 +65,7 @@ export async function GET() {
       }
     }
 
+    // Pending employees
     if (tables.includes("pending_employees")) {
       const row = await queryFirstRow<PendingEmployeesStatsRow>(`
         SELECT COUNT(*) as pending_employees
@@ -74,7 +77,7 @@ export async function GET() {
       }
     }
 
-    // Choose document table dynamically
+    // Documents table (dynamic)
     const docTable = tables.includes("documents")
       ? "documents"
       : tables.includes("document_uploads")
@@ -96,12 +99,14 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({ success: true, data: stats })
+    return withCors(req, { success: true, data: stats })
   } catch (error) {
     console.error("Unexpected error in dashboard GET:", error)
-    return NextResponse.json(
-      { success: false, message: "Unexpected server error" },
-      { status: 500 }
-    )
+    return withCors(req, { success: false, message: "Unexpected server error" }, 500)
   }
+}
+
+// ✅ Handle preflight OPTIONS requests
+export async function OPTIONS(req: NextRequest) {
+  return handleOptions(req)
 }

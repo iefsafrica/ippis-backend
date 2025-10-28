@@ -4,11 +4,11 @@
     "private": true,
     "type": "commonjs",
     "scripts": {
-        "dev": "next dev",
-        "build": "next build",
-        "start": "next start",
-        "postinstall": "prisma generate"
-    },
+  "dev": "next dev -p 8000",
+  "build": "next build",
+  "start": "next start -p 8000",
+  "postinstall": "prisma generate"
+},
     "prisma": {
         "schema": "./lib/generated/prisma/schema.prisma"
     },

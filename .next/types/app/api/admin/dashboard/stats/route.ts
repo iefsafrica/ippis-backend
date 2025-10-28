@@ -1,4 +1,4 @@
-// File: C:\Users\PC\ippis-backend\app\api\admin\dashboard\stats\route.ts
+// File: C:\Users\PC\Desktop\ippishr\backend\app\api\admin\dashboard\stats\route.ts
 import * as entry from '../../../../../../../app/api/admin/dashboard/stats/route.js'
 import type { NextRequest } from 'next/server.js'
 
