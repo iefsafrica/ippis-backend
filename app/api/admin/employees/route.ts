@@ -1,37 +1,51 @@
-﻿import { NextResponse } from 'next/server'
+﻿import { NextRequest } from "next/server";
+import { withCors, handleOptions } from "../../../../lib/cors"; 
 
-export async function GET() {
-  return NextResponse.json({
-    endpoint: '/admin/employees',
-    status: 'active',
-    message: 'IPPIS HR API',
-    timestamp: new Date().toISOString()
-  })
+// ✅ Handle CORS preflight requests
+export async function OPTIONS(req: NextRequest) {
+  return handleOptions(req);
 }
 
-export async function POST() {
-  return NextResponse.json({
+// ✅ GET request handler
+export async function GET(req: NextRequest) {
+  return withCors(req, {
     endpoint: '/admin/employees',
+    method: 'GET',
     status: 'active',
     message: 'IPPIS HR API',
     timestamp: new Date().toISOString()
-  })
+  });
 }
 
-export async function PUT() {
-  return NextResponse.json({
+// ✅ POST request handler
+export async function POST(req: NextRequest) {
+  return withCors(req, {
     endpoint: '/admin/employees',
+    method: 'POST',
     status: 'active',
     message: 'IPPIS HR API',
     timestamp: new Date().toISOString()
-  })
+  });
 }
 
-export async function DELETE() {
-  return NextResponse.json({
+// ✅ PUT request handler
+export async function PUT(req: NextRequest) {
+  return withCors(req, {
     endpoint: '/admin/employees',
+    method: 'PUT',
     status: 'active',
     message: 'IPPIS HR API',
     timestamp: new Date().toISOString()
-  })
+  });
+}
+
+// ✅ DELETE request handler
+export async function DELETE(req: NextRequest) {
+  return withCors(req, {
+    endpoint: '/admin/employees',
+    method: 'DELETE',
+    status: 'active',
+    message: 'IPPIS HR API',
+    timestamp: new Date().toISOString()
+  });
 }
