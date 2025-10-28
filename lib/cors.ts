@@ -6,7 +6,6 @@ const allowedOrigins = [
   "https://ippis-frontend.vercel.app",      
 ];
 
-// ✅ Generate CORS headers dynamically
 function getCorsHeaders(origin?: string) {
   return {
     "Access-Control-Allow-Origin": origin || "",
@@ -16,7 +15,6 @@ function getCorsHeaders(origin?: string) {
   };
 }
 
-// ✅ Handle normal JSON response with CORS
 export function withCors(req: NextRequest, json: any, status = 200) {
   const origin = req.headers.get("origin") || "";
   const allowed = allowedOrigins.includes(origin) ? origin : "";
@@ -26,7 +24,6 @@ export function withCors(req: NextRequest, json: any, status = 200) {
   });
 }
 
-// ✅ Handle preflight OPTIONS request
 export function handleOptions(req: NextRequest) {
   const origin = req.headers.get("origin") || "";
   const allowed = allowedOrigins.includes(origin) ? origin : "";
