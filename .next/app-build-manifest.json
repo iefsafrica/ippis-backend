@@ -5,10 +5,40 @@
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/dashboard/stats/route.js"
     ],
+    "/api/admin/employees/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/employees/route.js"
+    ],
+    "/api/admin/documents/pending/count/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/documents/pending/count/route.js"
+    ],
+    "/api/admin/documents/pending/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/documents/pending/route.js"
+    ],
     "/api/admin/dashboard/recent/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/dashboard/recent/route.js"
+    ],
+    "/api/admin/employees/[id]/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/employees/[id]/route.js"
+    ],
+    "/api/admin/documents/upload/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/documents/upload/route.js"
+    ],
+    "/api/admin/pending/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/pending/route.js"
     ]
   }
 }
