@@ -1,51 +1,119 @@
-﻿import { NextRequest } from "next/server";
-import { withCors, handleOptions } from "../../../../lib/cors"; 
+﻿import { neon } from "@neondatabase/serverless"
+import { withCors, handleOptions } from "../../../../lib/cors"
+import { NextRequest } from "next/server"
 
-// ✅ Handle CORS preflight requests
+export const dynamic = "force-dynamic"
+
+// Create Neon client
+const sql = neon(process.env.DATABASE_URL!)
+
+// Helper: check if table exists
+async function tableExists(tableName: string) {
+  try {
+    const result = await sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = ${tableName}
+      )
+    `
+    return result[0]?.exists ?? false
+  } catch (error) {
+    console.error(`Error checking if table ${tableName} exists:`, error)
+    return false
+  }
+}
+
+// Helper: format date fields safely
+function formatDateFields(rows: any[]) {
+  return rows.map((row) => {
+    const formattedRow = { ...row }
+    const formatDate = (field: string, newField?: string) => {
+      if (!formattedRow[field]) return
+      try {
+        const date = new Date(formattedRow[field])
+        if (isNaN(date.getTime())) {
+          formattedRow[field] = null
+          if (newField) formattedRow[newField] = null
+        } else if (newField) {
+          formattedRow[newField] = date.toISOString()
+        }
+      } catch {
+        formattedRow[field] = null
+        if (newField) formattedRow[newField] = null
+      }
+    }
+
+    formatDate("submissionDate")
+    formatDate("created_at", "createdAt")
+    formatDate("updated_at", "updatedAt")
+
+    return formattedRow
+  })
+}
+
+// Handle CORS preflight
 export async function OPTIONS(req: NextRequest) {
-  return handleOptions(req);
+  return handleOptions(req)
 }
 
-// ✅ GET request handler
+// GET: List all active employees
 export async function GET(req: NextRequest) {
-  return withCors(req, {
-    endpoint: '/admin/employees',
-    method: 'GET',
-    status: 'active',
-    message: 'IPPIS HR API',
-    timestamp: new Date().toISOString()
-  });
-}
+  try {
+    console.log("📡 Fetching all active employees...")
 
-// ✅ POST request handler
-export async function POST(req: NextRequest) {
-  return withCors(req, {
-    endpoint: '/admin/employees',
-    method: 'POST',
-    status: 'active',
-    message: 'IPPIS HR API',
-    timestamp: new Date().toISOString()
-  });
-}
+    const { searchParams } = new URL(req.url)
+    const page = Number(searchParams.get("page") || "1")
+    const limit = Number(searchParams.get("limit") || "10")
+    const offset = (page - 1) * limit
 
-// ✅ PUT request handler
-export async function PUT(req: NextRequest) {
-  return withCors(req, {
-    endpoint: '/admin/employees',
-    method: 'PUT',
-    status: 'active',
-    message: 'IPPIS HR API',
-    timestamp: new Date().toISOString()
-  });
-}
+    // Ensure table exists
+    const exists = await tableExists("employees")
+    if (!exists) {
+      return withCors(req, {
+        success: false,
+        error: "The 'employees' table does not exist in the database.",
+      }, 404)
+    }
 
-// ✅ DELETE request handler
-export async function DELETE(req: NextRequest) {
-  return withCors(req, {
-    endpoint: '/admin/employees',
-    method: 'DELETE',
-    status: 'active',
-    message: 'IPPIS HR API',
-    timestamp: new Date().toISOString()
-  });
+    // Fetch paginated active employees
+    const rows = await sql`
+      SELECT * 
+      FROM employees
+      WHERE status = 'active'
+      ORDER BY created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `
+    console.log("Rows fetched:", rows.length)
+
+    const formattedRows = formatDateFields(rows)
+
+    // Get total count of active employees
+    const countResult = await sql`
+      SELECT COUNT(*) AS total
+      FROM employees
+      WHERE status = 'active'
+    `
+    const total = Number(countResult[0]?.total ?? 0)
+
+    return withCors(req, {
+      success: true,
+      data: {
+        employees: formattedRows,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+    })
+  } catch (error) {
+    console.error(" Error fetching active employees:", error)
+    return withCors(req, {
+      success: false,
+      error: "Failed to fetch active employees from database.",
+      details: error instanceof Error ? error.message : String(error),
+    }, 500)
+  }
 }

@@ -60,7 +60,7 @@ export async function OPTIONS(req: NextRequest) {
 // GET: List all pending employees
 export async function GET(req: NextRequest) {
   try {
-    console.log("📡 Fetching all pending employees...")
+    console.log(" Fetching all pending employees...")
 
     const { searchParams } = new URL(req.url)
     const page = Number(searchParams.get("page") || "1")
@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
       }, 404)
     }
 
-    // ✅ Fetch paginated rows correctly
+    //  Fetch paginated rows correctly
     const rows = await sql`
       SELECT * 
       FROM pending_employees
@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
 
     const formattedRows = formatDateFields(rows)
 
-    // ✅ Get total count
+    //  Get total count
     const countResult = await sql`SELECT COUNT(*) AS total FROM pending_employees`
     const total = Number(countResult[0]?.total ?? 0)
 
@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error("❌ Error fetching pending employees:", error)
+    console.error(" Error fetching pending employees:", error)
     return withCors(req, {
       success: false,
       error: "Failed to fetch pending employees from database.",
