@@ -33,20 +33,19 @@ async function generateRegistrationId() {
     ORDER BY id DESC
     LIMIT 1
   `
- let nextNumber = 1
 
-if (result.length > 0 && result[0]?.registration_id) {
-  const lastId: string = result[0].registration_id  
-  const match = lastId.match(/IPPIS (\d+)/)         
-  if (match && match[1]) {                        
-    nextNumber = parseInt(match[1], 10) + 1
+  let nextNumber = 1
+
+  if (result.length > 0 && result[0]?.registration_id) {
+    const lastId: string = result[0].registration_id
+    const match = lastId.match(/IPPIS (\d+)/)
+    if (match && match[1]) {
+      nextNumber = parseInt(match[1], 10) + 1
+    }
   }
-}
 
-const newRegistrationId = `IPPIS ${String(nextNumber).padStart(3, "0")}`
-return newRegistrationId
+  return `IPPIS ${String(nextNumber).padStart(3, "0")}`
 }
-
 
 // Handle CORS preflight requests
 export async function OPTIONS(req: NextRequest) {
@@ -103,6 +102,24 @@ export async function POST(req: NextRequest) {
           error: "The 'pending_employees' table does not exist in the database.",
         },
         404
+      )
+    }
+
+    // Check if email already exists
+    const emailExists = await sql`
+      SELECT 1
+      FROM pending_employees
+      WHERE email = ${email}
+      LIMIT 1
+    `
+    if (emailExists.length > 0) {
+      return withCors(
+        req,
+        {
+          success: false,
+          error: "This email is already registered for a pending employee.",
+        },
+        400
       )
     }
 
