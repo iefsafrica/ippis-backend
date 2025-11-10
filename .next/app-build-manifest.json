@@ -19,6 +19,16 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/employees/add/route.js"
+    ],
+    "/api/admin/employees/[id]/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/employees/[id]/route.js"
+    ],
+    "/api/admin/pending/[id]/approve/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/pending/[id]/approve/route.js"
     ]
   }
 }
