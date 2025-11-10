@@ -35,7 +35,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id?: strin
   try {
     console.log("Approving pending employee...")
 
-    // ✅ 1. Get registration ID
+    //  1. Get registration ID
     let registrationId = params?.id
 
     if (!registrationId) {
@@ -51,7 +51,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id?: strin
       return withCors(req, { success: false, error: "Registration ID is required." }, 400)
     }
 
-    // ✅ 2. Ensure tables exist
+    //  2. Ensure tables exist
     const pendingExists = await tableExists("pending_employees")
     const employeesExists = await tableExists("employees")
 
@@ -62,7 +62,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id?: strin
       }, 404)
     }
 
-    // ✅ 3. Fetch pending employee
+    //  3. Fetch pending employee
     const pendingEmployeeResult = await sql`
       SELECT * FROM pending_employees WHERE registration_id = ${registrationId}
     `
@@ -75,13 +75,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id?: strin
       }, 404)
     }
 
-    // ✅ 4. Combine surname + firstname → name
+    //  4. Combine surname + firstname → name
     const fullName = `${pendingEmployee.surname ?? ""} ${pendingEmployee.firstname ?? ""}`.trim() || "Unnamed Employee"
 
-    // ✅ 5. Generate new unique employee ID
+    //  5. Generate new unique employee ID
     const newId = `EMP${Math.floor(100000 + Math.random() * 900000)}`
 
-    // ✅ 6. Insert into employees (or update existing email)
+    //  6. Insert into employees (or update existing email)
     const insertedEmployeeResult = await sql`
       INSERT INTO employees (
         id,
@@ -118,10 +118,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id?: strin
     `
     const newEmployee = insertedEmployeeResult[0]
 
-    // ✅ 7. Delete from pending_employees
+    //  7. Delete from pending_employees
     await sql`DELETE FROM pending_employees WHERE registration_id = ${registrationId}`
 
-    // ✅ 8. Send approval email
+    //  8. Send approval email
     try {
       if (newEmployee?.email) {
         const transporter = nodemailer.createTransport({
@@ -139,22 +139,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id?: strin
           text: `Hi ${fullName},\n\nCongratulations! Your employment has been approved and your account is now active.\n\nWelcome aboard!\n\n— The HR Team`,
         })
 
-        console.log(`✅ Approval email sent to: ${newEmployee.email}`)
+        console.log(` Approval email sent to: ${newEmployee.email}`)
       } else {
-        console.warn("⚠️ Skipping email — no valid employee record or email found.")
+        console.warn(" Skipping email — no valid employee record or email found.")
       }
     } catch (emailError) {
-      console.error("⚠️ Failed to send approval email:", emailError)
+      console.error(" Failed to send approval email:", emailError)
     }
 
-    // ✅ 9. Return success response
+    //  9. Return success response
     return withCors(req, {
       success: true,
       message: `Employee ${registrationId} approved successfully and moved to employees table.`,
       data: newEmployee,
     })
   } catch (error) {
-    console.error("❌ Error approving employee:", error)
+    console.error("Error approving employee:", error)
     return withCors(
       req,
       {
