@@ -10,25 +10,15 @@
       "static/chunks/main-app.js",
       "static/chunks/app/page.js"
     ],
-    "/api/admin/employees/route": [
+    "/api/admin/dashboard/chart/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/employees/route.js"
+      "static/chunks/app/api/admin/dashboard/chart/route.js"
     ],
-    "/api/admin/employees/add/route": [
+    "/api/admin/pending/[id]/reject/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/employees/add/route.js"
-    ],
-    "/api/admin/employees/[id]/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/employees/[id]/route.js"
-    ],
-    "/api/admin/pending/[id]/approve/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/pending/[id]/approve/route.js"
+      "static/chunks/app/api/admin/pending/[id]/reject/route.js"
     ]
   }
 }
