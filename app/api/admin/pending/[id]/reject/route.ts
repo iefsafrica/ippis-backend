@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic"
 // Neon client
 const sql = neon(process.env.DATABASE_URL!)
 
-// Helper: check if table exists
+// Helper to check if a table exists
 async function tableExists(tableName: string) {
   try {
     const result = await sql`
@@ -31,24 +31,17 @@ export async function OPTIONS(req: NextRequest) {
 }
 
 // ✅ PATCH: Approve pending employee (Next.js 15 compatible)
-export async function PATCH(req: NextRequest, context: any) {
+export async function PATCH(req: NextRequest) {
   try {
     console.log("Approving pending employee...")
 
-    // 1️⃣ Get registration ID
-    let registrationId = context?.params?.id
+    // 1️⃣ Extract ID from URL (since Next.js 15 no longer injects params)
+    const url = new URL(req.url)
+    const pathParts = url.pathname.split("/")
+    const registrationId = decodeURIComponent(pathParts[pathParts.length - 2] || "").trim()
 
     if (!registrationId) {
-      try {
-        const json = (await req.json()) as { id?: string; registration_id?: string }
-        registrationId = json.registration_id || json.id
-      } catch {
-        // ignore JSON parsing error
-      }
-    }
-
-    if (!registrationId || registrationId.trim() === "") {
-      return withCors(req, { success: false, error: "Registration ID is required." }, 400)
+      return withCors(req, { success: false, error: "Registration ID is required in the URL." }, 400)
     }
 
     // 2️⃣ Ensure both tables exist
@@ -145,13 +138,13 @@ export async function PATCH(req: NextRequest, context: any) {
 
         console.log(`✅ Approval email sent to: ${newEmployee.email}`)
       } else {
-        console.warn("⚠️ Skipping email — no valid employee record or email found.")
+        console.warn("⚠️ Skipping email — no valid email found.")
       }
     } catch (emailError) {
       console.error("⚠️ Failed to send approval email:", emailError)
     }
 
-    // 9️⃣ Return success response
+    // 9️⃣ Return success
     return withCors(req, {
       success: true,
       message: `Employee ${registrationId} approved successfully and moved to employees table.`,
