@@ -19,6 +19,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/pending/[id]/reject/route.js"
+    ],
+    "/api/admin/pending/[id]/delete/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/pending/[id]/delete/route.js"
     ]
   }
 }
