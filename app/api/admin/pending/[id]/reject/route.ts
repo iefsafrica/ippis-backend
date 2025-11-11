@@ -1,14 +1,14 @@
-﻿import { neon } from "@neondatabase/serverless"
-import { withCors, handleOptions } from "../../../../../../lib/cors"
-import { NextRequest } from "next/server"
-import nodemailer from "nodemailer"
+﻿import { neon } from "@neondatabase/serverless";
+import { withCors, handleOptions } from "../../../../../../lib/cors";
+import { NextRequest } from "next/server";
+import nodemailer from "nodemailer";
 
-export const dynamic = "force-dynamic"
+export const dynamic = "force-dynamic";
 
 // Neon client
-const sql = neon(process.env.DATABASE_URL!)
+const sql = neon(process.env.DATABASE_URL!);
 
-// Helper: check if table exists
+// ✅ Helper: check if table exists
 async function tableExists(tableName: string) {
   try {
     const result = await sql`
@@ -17,74 +17,79 @@ async function tableExists(tableName: string) {
         WHERE table_schema = 'public'
         AND table_name = ${tableName}
       )
-    `
-    return result[0]?.exists ?? false
+    `;
+    return result[0]?.exists ?? false;
   } catch (error) {
-    console.error(`Error checking if table ${tableName} exists:`, error)
-    return false
+    console.error(`Error checking if table ${tableName} exists:`, error);
+    return false;
   }
 }
 
-// Handle CORS preflight
+// ✅ Handle CORS preflight
 export async function OPTIONS(req: NextRequest) {
-  return handleOptions(req)
+  return handleOptions(req);
 }
 
-//  PATCH: Reject a pending employee
-export async function PATCH(
-  req: NextRequest,
-  context: { params: Record<string, string> }
-) {
+// ✅ PATCH: Reject pending employee (Next.js build-safe)
+export async function PATCH(req: NextRequest) {
   try {
-    console.log("Rejecting pending employee...")
+    console.log("Rejecting pending employee...");
 
-    // 1. Get registration ID
-    let registrationId = context.params?.id
+    // ✅ Extract registration ID safely from URL
+    const url = new URL(req.url);
+    // URL looks like /api/admin/pending/[id]/reject
+    const pathParts = url.pathname.split("/");
+    const registrationId = decodeURIComponent(
+      pathParts[pathParts.length - 2] || ""
+    ).trim();
 
     if (!registrationId) {
-      try {
-        const json = (await req.json()) as { id?: string; registration_id?: string }
-        registrationId = json.registration_id || json.id
-      } catch {
-        // ignore JSON parsing error
-      }
+      return withCors(
+        req,
+        { success: false, error: "Registration ID is required in the URL." },
+        400
+      );
     }
 
-    if (!registrationId || registrationId.trim() === "") {
-      return withCors(req, { success: false, error: "Registration ID is required." }, 400)
-    }
-
-    // 2. Ensure pending_employees table exists
-    const pendingExists = await tableExists("pending_employees")
+    // ✅ Ensure pending_employees table exists
+    const pendingExists = await tableExists("pending_employees");
     if (!pendingExists) {
-      return withCors(req, {
-        success: false,
-        error: "pending_employees table does not exist.",
-      }, 404)
+      return withCors(
+        req,
+        {
+          success: false,
+          error: "pending_employees table does not exist.",
+        },
+        404
+      );
     }
 
-    // 3. Fetch pending employee
+    // ✅ Fetch pending employee
     const pendingEmployeeResult = await sql`
       SELECT * FROM pending_employees WHERE registration_id = ${registrationId}
-    `
-    const pendingEmployee = pendingEmployeeResult[0]
+    `;
+    const pendingEmployee = pendingEmployeeResult[0];
 
     if (!pendingEmployee) {
-      return withCors(req, {
-        success: false,
-        error: `Pending employee with registration ID ${registrationId} not found.`,
-      }, 404)
+      return withCors(
+        req,
+        {
+          success: false,
+          error: `Pending employee with registration ID ${registrationId} not found.`,
+        },
+        404
+      );
     }
 
-    // 4. Delete from pending_employees
-    await sql`DELETE FROM pending_employees WHERE registration_id = ${registrationId}`
+    // ✅ Delete from pending_employees
+    await sql`DELETE FROM pending_employees WHERE registration_id = ${registrationId}`;
 
-    // 5. Combine surname + firstname → full name
+    // ✅ Combine surname + firstname → full name
     const fullName =
       `${pendingEmployee.surname ?? ""} ${pendingEmployee.firstname ?? ""}`.trim() ||
-      "Employee"
+      "Employee";
 
-    // 6. Send rejection email
+    // ✅ Send rejection email
     try {
       if (pendingEmployee.email) {
         const transporter = nodemailer.createTransport({
@@ -93,24 +98,24 @@ export async function PATCH(
             user: process.env.SMTP_USER!,
             pass: process.env.SMTP_PASS!,
           },
-        })
+        });
 
         await transporter.sendMail({
           from: `"HR Department" <${process.env.SMTP_USER}>`,
           to: pendingEmployee.email,
           subject: "Your Employment Application Status",
           text: `Hi ${fullName},\n\nWe regret to inform you that your employment application has not been approved at this time.\n\nThank you for your interest, and we wish you the best in your future endeavors.\n\n— The HR Team`,
-        })
+        });
 
-        console.log(` Rejection email sent to: ${pendingEmployee.email}`)
+        console.log(`✅ Rejection email sent to: ${pendingEmployee.email}`);
       } else {
-        console.warn(" Skipping rejection email — no valid email found.")
+        console.warn("⚠️ Skipping rejection email — no valid email found.");
       }
     } catch (emailError) {
-      console.error(" Failed to send rejection email:", emailError)
+      console.error("⚠️ Failed to send rejection email:", emailError);
     }
 
-    // 7. Return success response
+    // ✅ Return success response
     return withCors(req, {
       success: true,
       message: `Pending employee ${registrationId} has been rejected and removed from the pending list.`,
@@ -119,9 +124,9 @@ export async function PATCH(
         name: fullName,
         email: pendingEmployee.email,
       },
-    })
+    });
   } catch (error) {
-    console.error(" Error rejecting employee:", error)
+    console.error("❌ Error rejecting employee:", error);
     return withCors(
       req,
       {
@@ -130,6 +135,6 @@ export async function PATCH(
         details: error instanceof Error ? error.message : String(error),
       },
       500
-    )
+    );
   }
 }
