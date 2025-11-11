@@ -30,13 +30,16 @@ export async function OPTIONS(req: NextRequest) {
   return handleOptions(req)
 }
 
-// PATCH: Reject a pending employee
-export async function PATCH(req: NextRequest, { params }: { params: { id?: string } }) {
+//  PATCH: Reject a pending employee
+export async function PATCH(
+  req: NextRequest,
+  context: { params: Record<string, string> }
+) {
   try {
     console.log("Rejecting pending employee...")
 
     // 1. Get registration ID
-    let registrationId = params?.id
+    let registrationId = context.params?.id
 
     if (!registrationId) {
       try {
@@ -101,10 +104,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id?: strin
 
         console.log(` Rejection email sent to: ${pendingEmployee.email}`)
       } else {
-        console.warn("Skipping rejection email — no valid email found.")
+        console.warn(" Skipping rejection email — no valid email found.")
       }
     } catch (emailError) {
-      console.error("Failed to send rejection email:", emailError)
+      console.error(" Failed to send rejection email:", emailError)
     }
 
     // 7. Return success response
@@ -118,7 +121,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id?: strin
       },
     })
   } catch (error) {
-    console.error("Error rejecting employee:", error)
+    console.error(" Error rejecting employee:", error)
     return withCors(
       req,
       {
