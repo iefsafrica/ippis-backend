@@ -29,16 +29,14 @@ export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
 }
 
-// ✅ PATCH: Approve pending employee (Next.js 15–compatible)
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+// ✅ PATCH: Approve pending employee (Next.js 15–compatible, fixed type)
+export async function PATCH(req: NextRequest, context: any) {
   try {
     console.log("Approving pending employee...");
 
     // 1️⃣ Extract registration ID from dynamic route param
-    const registrationId = decodeURIComponent(params.id).trim();
+    const { id } = context.params as { id: string };
+    const registrationId = decodeURIComponent(id).trim();
 
     if (!registrationId) {
       return withCors(
