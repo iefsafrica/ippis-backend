@@ -30,15 +30,12 @@ export async function OPTIONS(req: NextRequest) {
   return handleOptions(req)
 }
 
-//  PATCH: Reject a pending employee
-export async function PATCH(
-  req: NextRequest,
-  context: { params: Record<string, string> }
-) {
+// ✅ PATCH: Approve pending employee (Next.js 14-compatible)
+export async function PATCH(req: NextRequest, context: { params: Record<string, string> }) {
   try {
-    console.log("Rejecting pending employee...")
+    console.log("Approving pending employee...")
 
-    // 1. Get registration ID
+    // 1️⃣ Get registration ID
     let registrationId = context.params?.id
 
     if (!registrationId) {
@@ -54,39 +51,83 @@ export async function PATCH(
       return withCors(req, { success: false, error: "Registration ID is required." }, 400)
     }
 
-    // 2. Ensure pending_employees table exists
+    // 2️⃣ Ensure both tables exist
     const pendingExists = await tableExists("pending_employees")
-    if (!pendingExists) {
-      return withCors(req, {
-        success: false,
-        error: "pending_employees table does not exist.",
-      }, 404)
+    const employeesExists = await tableExists("employees")
+
+    if (!pendingExists || !employeesExists) {
+      return withCors(
+        req,
+        { success: false, error: "Required database tables do not exist." },
+        404
+      )
     }
 
-    // 3. Fetch pending employee
+    // 3️⃣ Fetch pending employee
     const pendingEmployeeResult = await sql`
       SELECT * FROM pending_employees WHERE registration_id = ${registrationId}
     `
     const pendingEmployee = pendingEmployeeResult[0]
 
     if (!pendingEmployee) {
-      return withCors(req, {
-        success: false,
-        error: `Pending employee with registration ID ${registrationId} not found.`,
-      }, 404)
+      return withCors(
+        req,
+        { success: false, error: `Pending employee with registration ID ${registrationId} not found.` },
+        404
+      )
     }
 
-    // 4. Delete from pending_employees
-    await sql`DELETE FROM pending_employees WHERE registration_id = ${registrationId}`
-
-    // 5. Combine surname + firstname → full name
+    // 4️⃣ Combine surname + firstname → full name
     const fullName =
       `${pendingEmployee.surname ?? ""} ${pendingEmployee.firstname ?? ""}`.trim() ||
-      "Employee"
+      "Unnamed Employee"
 
-    // 6. Send rejection email
+    // 5️⃣ Generate unique employee ID
+    const newId = `EMP${Math.floor(100000 + Math.random() * 900000)}`
+
+    // 6️⃣ Insert into employees (handle duplicates by email)
+    const insertedEmployeeResult = await sql`
+      INSERT INTO employees (
+        id,
+        registration_id,
+        name,
+        email,
+        position,
+        department,
+        status,
+        join_date,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${newId},
+        ${pendingEmployee.registration_id},
+        ${fullName},
+        ${pendingEmployee.email || "no-email@example.com"},
+        ${pendingEmployee.position || "Not Assigned"},
+        ${pendingEmployee.department || "Unassigned"},
+        'active',
+        CURRENT_DATE,
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (email)
+      DO UPDATE SET
+        status = 'active',
+        updated_at = NOW(),
+        name = EXCLUDED.name,
+        position = EXCLUDED.position,
+        department = EXCLUDED.department
+      RETURNING *
+    `
+    const newEmployee = insertedEmployeeResult[0]
+
+    // 7️⃣ Delete from pending_employees
+    await sql`DELETE FROM pending_employees WHERE registration_id = ${registrationId}`
+
+    // 8️⃣ Send approval email
     try {
-      if (pendingEmployee.email) {
+      if (newEmployee?.email) {
         const transporter = nodemailer.createTransport({
           service: "gmail",
           auth: {
@@ -97,36 +138,32 @@ export async function PATCH(
 
         await transporter.sendMail({
           from: `"HR Department" <${process.env.SMTP_USER}>`,
-          to: pendingEmployee.email,
-          subject: "Your Employment Application Status",
-          text: `Hi ${fullName},\n\nWe regret to inform you that your employment application has not been approved at this time.\n\nThank you for your interest, and we wish you the best in your future endeavors.\n\n— The HR Team`,
+          to: newEmployee.email,
+          subject: "Your Employment Has Been Approved",
+          text: `Hi ${fullName},\n\nCongratulations! Your employment has been approved and your account is now active.\n\nWelcome aboard!\n\n— The HR Team`,
         })
 
-        console.log(` Rejection email sent to: ${pendingEmployee.email}`)
+        console.log(`✅ Approval email sent to: ${newEmployee.email}`)
       } else {
-        console.warn(" Skipping rejection email — no valid email found.")
+        console.warn("⚠️ Skipping email — no valid employee record or email found.")
       }
     } catch (emailError) {
-      console.error(" Failed to send rejection email:", emailError)
+      console.error("⚠️ Failed to send approval email:", emailError)
     }
 
-    // 7. Return success response
+    // 9️⃣ Return success response
     return withCors(req, {
       success: true,
-      message: `Pending employee ${registrationId} has been rejected and removed from the pending list.`,
-      data: {
-        registration_id: registrationId,
-        name: fullName,
-        email: pendingEmployee.email,
-      },
+      message: `Employee ${registrationId} approved successfully and moved to employees table.`,
+      data: newEmployee,
     })
   } catch (error) {
-    console.error(" Error rejecting employee:", error)
+    console.error("❌ Error approving employee:", error)
     return withCors(
       req,
       {
         success: false,
-        error: "Failed to reject employee.",
+        error: "Failed to approve employee.",
         details: error instanceof Error ? error.message : String(error),
       },
       500
