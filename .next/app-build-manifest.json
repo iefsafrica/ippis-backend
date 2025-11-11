@@ -24,6 +24,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/pending/[id]/delete/route.js"
+    ],
+    "/api/admin/import/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/import/route.js"
     ]
   }
 }
