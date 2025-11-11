@@ -1,1 +1,3 @@
-{}
+{
+  "/api/admin/pending/[id]/reject/route": "app/api/admin/pending/[id]/reject/route.js"
+}

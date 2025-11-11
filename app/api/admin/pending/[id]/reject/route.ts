@@ -30,13 +30,13 @@ export async function OPTIONS(req: NextRequest) {
   return handleOptions(req)
 }
 
-// ✅ PATCH: Approve pending employee (Next.js 14-compatible)
-export async function PATCH(req: NextRequest, context: { params: Record<string, string> }) {
+// ✅ PATCH: Approve pending employee (Next.js 15 compatible)
+export async function PATCH(req: NextRequest, context: any) {
   try {
     console.log("Approving pending employee...")
 
     // 1️⃣ Get registration ID
-    let registrationId = context.params?.id
+    let registrationId = context?.params?.id
 
     if (!registrationId) {
       try {
