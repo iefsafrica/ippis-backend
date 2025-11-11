@@ -5,10 +5,9 @@ import nodemailer from "nodemailer"
 
 export const dynamic = "force-dynamic"
 
-// Neon client
 const sql = neon(process.env.DATABASE_URL!)
 
-// Helper to check if a table exists
+// ✅ Utility: check if table exists
 async function tableExists(tableName: string) {
   try {
     const result = await sql`
@@ -25,23 +24,23 @@ async function tableExists(tableName: string) {
   }
 }
 
-// Handle CORS preflight
+// ✅ Handle CORS preflight
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req)
 }
 
-// ✅ PATCH: Approve pending employee (Next.js 15 compatible)
+// ✅ PATCH: Approve pending employee (Next.js 15–compatible)
 export async function PATCH(req: NextRequest) {
   try {
     console.log("Approving pending employee...")
 
-    // 1️⃣ Extract ID from URL (since Next.js 15 no longer injects params)
+    // 1️⃣ Extract registration ID from URL
     const url = new URL(req.url)
     const pathParts = url.pathname.split("/")
     const registrationId = decodeURIComponent(pathParts[pathParts.length - 2] || "").trim()
 
     if (!registrationId) {
-      return withCors(req, { success: false, error: "Registration ID is required in the URL." }, 400)
+      return withCors(req, { success: false, error: "Registration ID is required in URL." }, 400)
     }
 
     // 2️⃣ Ensure both tables exist
@@ -56,7 +55,7 @@ export async function PATCH(req: NextRequest) {
       )
     }
 
-    // 3️⃣ Fetch pending employee
+    // 3️⃣ Fetch pending employee record
     const pendingEmployeeResult = await sql`
       SELECT * FROM pending_employees WHERE registration_id = ${registrationId}
     `
@@ -65,15 +64,16 @@ export async function PATCH(req: NextRequest) {
     if (!pendingEmployee) {
       return withCors(
         req,
-        { success: false, error: `Pending employee with registration ID ${registrationId} not found.` },
+        {
+          success: false,
+          error: `Pending employee with registration ID ${registrationId} not found.`,
+        },
         404
       )
     }
 
     // 4️⃣ Combine surname + firstname → full name
-    const fullName =
-      `${pendingEmployee.surname ?? ""} ${pendingEmployee.firstname ?? ""}`.trim() ||
-      "Unnamed Employee"
+    const fullName = `${pendingEmployee.surname ?? ""} ${pendingEmployee.firstname ?? ""}`.trim() || "Unnamed Employee"
 
     // 5️⃣ Generate unique employee ID
     const newId = `EMP${Math.floor(100000 + Math.random() * 900000)}`
@@ -115,7 +115,7 @@ export async function PATCH(req: NextRequest) {
     `
     const newEmployee = insertedEmployeeResult[0]
 
-    // 7️⃣ Delete from pending_employees
+    // 7️⃣ Delete the pending record
     await sql`DELETE FROM pending_employees WHERE registration_id = ${registrationId}`
 
     // 8️⃣ Send approval email
@@ -138,13 +138,13 @@ export async function PATCH(req: NextRequest) {
 
         console.log(`✅ Approval email sent to: ${newEmployee.email}`)
       } else {
-        console.warn("⚠️ Skipping email — no valid email found.")
+        console.warn("⚠️ No valid email found, skipping email notification.")
       }
     } catch (emailError) {
-      console.error("⚠️ Failed to send approval email:", emailError)
+      console.error("⚠️ Failed to send email:", emailError)
     }
 
-    // 9️⃣ Return success
+    // 9️⃣ Return success response
     return withCors(req, {
       success: true,
       message: `Employee ${registrationId} approved successfully and moved to employees table.`,
