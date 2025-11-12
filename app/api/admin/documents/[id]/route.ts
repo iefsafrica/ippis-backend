@@ -12,7 +12,10 @@ export async function OPTIONS(req: Request) {
 }
 
 // ✅ GET /api/admin/documents/[id]
-export async function GET(req: Request, context: { params: { id: string } }) {
+export async function GET(
+  req: Request,
+  context: { params: Record<string, string> }
+) {
   try {
     const registrationId = context.params.id
 
