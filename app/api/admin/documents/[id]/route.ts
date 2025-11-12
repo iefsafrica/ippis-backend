@@ -6,22 +6,20 @@ export const dynamic = "force-dynamic"
 const sql = neon(process.env.DATABASE_URL!)
 
 // Handle preflight
-export async function OPTIONS(req: NextRequest) {
-  return handleOptions(req)
+export async function OPTIONS(req: Request) {
+  // Cast Request → NextRequest to satisfy helper typing
+  return handleOptions(req as unknown as NextRequest)
 }
 
 // ✅ GET /api/admin/documents/[id]
-export async function GET(req: NextRequest, context: { params: { id: string } }) {
+export async function GET(req: Request, context: { params: { id: string } }) {
   try {
     const registrationId = context.params.id
 
     if (!registrationId) {
       return withCors(
-        req,
-        {
-          success: false,
-          error: "registrationId (from URL) is required",
-        },
+        req as unknown as NextRequest,
+        { success: false, error: "registrationId (from URL) is required" },
         400
       )
     }
@@ -42,18 +40,15 @@ export async function GET(req: NextRequest, context: { params: { id: string } })
 
     if (result.length === 0) {
       return withCors(
-        req,
-        {
-          success: false,
-          error: "No documents found for this employee",
-        },
+        req as unknown as NextRequest,
+        { success: false, error: "No documents found for this employee" },
         404
       )
     }
 
     const doc = result[0]!
 
-    return withCors(req, {
+    return withCors(req as unknown as NextRequest, {
       success: true,
       data: {
         registrationId: doc.registration_id,
@@ -70,7 +65,7 @@ export async function GET(req: NextRequest, context: { params: { id: string } })
   } catch (error) {
     console.error("Error fetching employee documents:", error)
     return withCors(
-      req,
+      req as unknown as NextRequest,
       {
         success: false,
         error: "Failed to fetch employee documents",
