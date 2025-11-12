@@ -29,6 +29,16 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/import/route.js"
+    ],
+    "/api/admin/employees/[id]/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/employees/[id]/route.js"
+    ],
+    "/api/admin/documents/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/documents/route.js"
     ]
   }
 }
