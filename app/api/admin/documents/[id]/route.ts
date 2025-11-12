@@ -1,5 +1,4 @@
-﻿// app/api/admin/documents/[id]/route.ts
-import { neon } from "@neondatabase/serverless"
+﻿import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "../../../../../lib/cors"
 import { NextRequest } from "next/server"
 
@@ -11,16 +10,20 @@ export async function OPTIONS(req: NextRequest) {
   return handleOptions(req)
 }
 
-// GET /api/admin/documents/[id]
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+// ✅ GET /api/admin/documents/[id]
+export async function GET(req: NextRequest, context: { params: { id: string } }) {
   try {
-    const registrationId = params.id
+    const registrationId = context.params.id
 
     if (!registrationId) {
-      return withCors(req, {
-        success: false,
-        error: "registrationId (from URL) is required",
-      }, 400)
+      return withCors(
+        req,
+        {
+          success: false,
+          error: "registrationId (from URL) is required",
+        },
+        400
+      )
     }
 
     const result = await sql`
@@ -38,10 +41,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     `
 
     if (result.length === 0) {
-      return withCors(req, {
-        success: false,
-        error: "No documents found for this employee",
-      }, 404)
+      return withCors(
+        req,
+        {
+          success: false,
+          error: "No documents found for this employee",
+        },
+        404
+      )
     }
 
     const doc = result[0]!
@@ -62,10 +69,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     })
   } catch (error) {
     console.error("Error fetching employee documents:", error)
-    return withCors(req, {
-      success: false,
-      error: "Failed to fetch employee documents",
-      details: error instanceof Error ? error.message : String(error),
-    }, 500)
+    return withCors(
+      req,
+      {
+        success: false,
+        error: "Failed to fetch employee documents",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    )
   }
 }
