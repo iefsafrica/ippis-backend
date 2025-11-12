@@ -1,44 +1,14 @@
 {
   "pages": {
-    "/layout": [
+    "/api/admin/documents/[id]/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/layout.js"
+      "static/chunks/app/api/admin/documents/[id]/route.js"
     ],
-    "/page": [
+    "/api/admin/documents/[id]/approve/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/page.js"
-    ],
-    "/api/admin/dashboard/chart/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/dashboard/chart/route.js"
-    ],
-    "/api/admin/pending/[id]/reject/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/pending/[id]/reject/route.js"
-    ],
-    "/api/admin/pending/[id]/delete/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/pending/[id]/delete/route.js"
-    ],
-    "/api/admin/import/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/import/route.js"
-    ],
-    "/api/admin/employees/[id]/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/employees/[id]/route.js"
-    ],
-    "/api/admin/documents/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/documents/route.js"
+      "static/chunks/app/api/admin/documents/[id]/approve/route.js"
     ]
   }
 }
