@@ -1,8 +1,8 @@
-import { neon } from "@neondatabase/serverless"
-import { withCors, handleOptions } from "../../../../../lib/cors"
-import { NextRequest } from "next/server"
+import { neon } from "@neondatabase/serverless";
+import { withCors, handleOptions } from "../../../../../lib/cors";
+import { NextRequest } from "next/server";
 
-type TableNameRow = { table_name: string };
+// Row types
 type EmployeesStatsRow = {
   total_employees: string;
   active_employees: string;
@@ -16,19 +16,22 @@ type DocumentsStatsRow = {
   rejected_documents: string;
 };
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
-    const sql = neon(process.env.DATABASE_URL || "")
- // @ts-expect-error axios response mismatch
-    const tablesResult = await sql.query<TableNameRow[]>(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public'
-    `)
+    const sql = neon(process.env.DATABASE_URL || "");
 
-    const tables = Array.isArray(tablesResult)
-      ? tablesResult.map((row) => row.table_name)
-      : []
+    // Check if document_uploads table exists
+    const tableCheckResult = (await sql.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'document_uploads'
+      ) AS table_exists;
+    `)) as Array<{ table_exists: boolean }>;
+
+    const documentUploadsExists = tableCheckResult[0]?.table_exists ?? false;
 
     const stats = {
       totalEmployees: 0,
@@ -40,73 +43,65 @@ export async function GET(req: NextRequest) {
     };
 
     // Safe query helper
-    async function queryFirstRow<T>(query: string) {
+    async function queryFirstRow<T>(query: string): Promise<T | undefined> {
       try {
-         // @ts-expect-error axios response mismatch
-        const result = await sql.query<T[]>(query)
-        return Array.isArray(result) && result.length > 0 ? result[0] : undefined
+        const raw = (await sql.query(query)) as unknown;
+        if (Array.isArray(raw) && raw.length > 0) {
+          return raw[0] as T;
+        }
+        return undefined;
       } catch (err) {
-        console.error("Query failed:", err)
-        return undefined
+        console.error("Query failed:", err);
+        return undefined;
       }
     }
 
-    // Employees table
-    if (tables.includes("employees")) {
-      const row = await queryFirstRow<EmployeesStatsRow>(`
-        SELECT 
-          COUNT(*) AS total_employees,
-          COUNT(CASE WHEN status = 'active' THEN 1 END) AS active_employees
-        FROM employees;
-      `);
-      if (row) {
-        stats.totalEmployees = Number(row.total_employees);
-        stats.activeEmployees = Number(row.active_employees);
-      }
+    // Employees stats
+    const employeesRow = await queryFirstRow<EmployeesStatsRow>(`
+      SELECT 
+        COUNT(*) AS total_employees,
+        COUNT(CASE WHEN status = 'active' THEN 1 END) AS active_employees
+      FROM employees;
+    `);
+    if (employeesRow) {
+      stats.totalEmployees = Number(employeesRow.total_employees);
+      stats.activeEmployees = Number(employeesRow.active_employees);
     }
 
     // Pending employees
-    if (tables.includes("pending_employees")) {
-      const row = await queryFirstRow<PendingEmployeesStatsRow>(`
-        SELECT COUNT(*) AS pending_employees
-        FROM pending_employees
-        WHERE status = 'pending_approval';
-      `);
-      if (row) {
-        stats.pendingEmployees = Number(row.pending_employees);
-      }
+    const pendingRow = await queryFirstRow<PendingEmployeesStatsRow>(`
+      SELECT COUNT(*) AS pending_employees
+      FROM pending_employees
+      WHERE status = 'pending_approval';
+    `);
+    if (pendingRow) {
+      stats.pendingEmployees = Number(pendingRow.pending_employees);
     }
 
-    // Documents table (dynamic)
-    const docTable = tables.includes("documents")
-      ? "documents"
-      : tables.includes("document_uploads")
-      ? "document_uploads"
-      : null;
-
-    if (docTable) {
-      const row = await queryFirstRow<DocumentsStatsRow>(`
+    // Document stats from document_uploads
+    if (documentUploadsExists) {
+      const docRow = await queryFirstRow<DocumentsStatsRow>(`
         SELECT
           COUNT(CASE WHEN status = 'pending' THEN 1 END) AS pending_documents,
-          COUNT(CASE WHEN status = 'verified' THEN 1 END) AS verified_documents,
+          COUNT(CASE WHEN status = 'approved' THEN 1 END) AS verified_documents,
           COUNT(CASE WHEN status = 'rejected' THEN 1 END) AS rejected_documents
-        FROM ${docTable};
+        FROM document_uploads;
       `);
-      if (row) {
-        stats.pendingDocuments = Number(row.pending_documents);
-        stats.verifiedDocuments = Number(row.verified_documents);
-        stats.rejectedDocuments = Number(row.rejected_documents);
+      if (docRow) {
+        stats.pendingDocuments = Number(docRow.pending_documents);
+        stats.verifiedDocuments = Number(docRow.verified_documents);
+        stats.rejectedDocuments = Number(docRow.rejected_documents);
       }
     }
 
-    return withCors(req, { success: true, data: stats })
+    return withCors(req, { success: true, data: stats });
   } catch (error) {
-    console.error("Unexpected error in dashboard GET:", error)
-    return withCors(req, { success: false, message: "Unexpected server error" }, 500)
+    console.error("Unexpected error in dashboard GET:", error);
+    return withCors(req, { success: false, message: "Unexpected server error" }, 500);
   }
 }
 
-// ✅ Handle preflight OPTIONS requests
+// Handle preflight OPTIONS requests
 export async function OPTIONS(req: NextRequest) {
-  return handleOptions(req)
+  return handleOptions(req);
 }
