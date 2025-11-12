@@ -9,6 +9,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/documents/[id]/approve/route.js"
+    ],
+    "/api/admin/documents/[id]/reject/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/documents/[id]/reject/route.js"
     ]
   }
 }

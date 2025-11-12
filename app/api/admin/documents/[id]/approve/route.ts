@@ -11,12 +11,12 @@ export async function OPTIONS(req: NextRequest) {
   return handleOptions(req)
 }
 
-export async function POST(
-  req: NextRequest,
-  context: { params: { id: string } }
-) {
+export async function POST(req: NextRequest) {
   try {
-    const registrationId = context.params.id
+    // Extract the registrationId from the URL path
+    const url = new URL(req.url)
+    const parts = url.pathname.split("/")
+    const registrationId = parts[parts.length - 2] 
 
     if (!registrationId) {
       return withCors(req, {
@@ -25,6 +25,7 @@ export async function POST(
       }, 400)
     }
 
+    // Update the document status to 'approved'
     const updated = await sql`
       UPDATE document_uploads
       SET status = 'approved'
