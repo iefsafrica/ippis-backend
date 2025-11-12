@@ -7,17 +7,13 @@ const sql = neon(process.env.DATABASE_URL!)
 
 // Handle preflight
 export async function OPTIONS(req: Request) {
-  // Cast Request → NextRequest to satisfy helper typing
   return handleOptions(req as unknown as NextRequest)
 }
 
-// ✅ GET /api/admin/documents/[id]
-export async function GET(
-  req: Request,
-  context: { params: Record<string, string> }
-) {
+// GET /api/admin/documents/[id]
+export async function GET(req: Request, context: any) {
   try {
-    const registrationId = context.params.id
+    const registrationId = context.params?.id
 
     if (!registrationId) {
       return withCors(
