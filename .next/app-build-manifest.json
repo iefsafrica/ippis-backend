@@ -34,6 +34,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/dashboard/stats/route.js"
+    ],
+    "/api/admin/employees/recent/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/employees/recent/route.js"
     ]
   }
 }
