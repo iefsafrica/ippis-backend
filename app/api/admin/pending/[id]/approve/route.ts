@@ -5,10 +5,8 @@ import nodemailer from "nodemailer";
 
 export const dynamic = "force-dynamic";
 
-// Neon client
 const sql = neon(process.env.DATABASE_URL!);
 
-// Helper: check if table exists
 async function tableExists(tableName: string) {
   try {
     const result = await sql`
@@ -19,77 +17,54 @@ async function tableExists(tableName: string) {
       )
     `;
     return result[0]?.exists ?? false;
-  } catch (error) {
-    console.error(`Error checking if table ${tableName} exists:`, error);
+  } catch {
     return false;
   }
 }
 
-// Handle CORS preflight
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
 }
 
-// ✅ PATCH: Approve pending employee (Next.js build-safe)
 export async function PATCH(req: NextRequest) {
   try {
-    console.log("Approving pending employee...");
+    console.log("🚀 Approving pending employee...");
 
-    // ✅ Extract registration ID safely from URL
     const url = new URL(req.url);
-    // URL looks like: /api/admin/pending/123/approve
     const pathParts = url.pathname.split("/");
-    const registrationId = decodeURIComponent(
-      pathParts[pathParts.length - 2] || ""
-    ).trim();
+    const registrationId = decodeURIComponent(pathParts[pathParts.length - 2] || "").trim();
 
     if (!registrationId) {
-      return withCors(
-        req,
-        { success: false, error: "Registration ID is required in the URL." },
-        400
-      );
+      return withCors(req, { success: false, error: "Registration ID is required." }, 400);
     }
 
-    // ✅ Ensure both tables exist
     const pendingExists = await tableExists("pending_employees");
     const employeesExists = await tableExists("employees");
 
     if (!pendingExists || !employeesExists) {
-      return withCors(
-        req,
-        { success: false, error: "Required database tables do not exist." },
-        404
-      );
+      return withCors(req, { success: false, error: "Required tables do not exist." }, 404);
     }
 
-    // ✅ Fetch pending employee
     const pendingEmployeeResult = await sql`
       SELECT * FROM pending_employees WHERE registration_id = ${registrationId}
     `;
     const pendingEmployee = pendingEmployeeResult[0];
 
     if (!pendingEmployee) {
-      return withCors(
-        req,
-        {
-          success: false,
-          error: `Pending employee with registration ID ${registrationId} not found.`,
-        },
-        404
-      );
+      return withCors(req, {
+        success: false,
+        error: `No pending employee found for ${registrationId}.`,
+      }, 404);
     }
 
-    // ✅ Combine surname + firstname → name
-    const fullName =
-      `${pendingEmployee.surname ?? ""} ${pendingEmployee.firstname ?? ""}`.trim() ||
-      "Unnamed Employee";
+    const fullName = `${pendingEmployee.surname ?? ""} ${
+      pendingEmployee.firstname ?? ""
+    }`.trim() || pendingEmployee.name || "Unnamed Employee";
 
-    // ✅ Generate new unique employee ID
     const newId = `EMP${Math.floor(100000 + Math.random() * 900000)}`;
 
-    // ✅ Insert into employees (or update existing email)
-    const insertedEmployeeResult = await sql`
+    // 🆕 Include metadata field
+    const insertedEmployee = await sql`
       INSERT INTO employees (
         id,
         registration_id,
@@ -98,6 +73,7 @@ export async function PATCH(req: NextRequest) {
         position,
         department,
         status,
+        metadata,
         join_date,
         created_at,
         updated_at
@@ -110,6 +86,7 @@ export async function PATCH(req: NextRequest) {
         ${pendingEmployee.position || "Not Assigned"},
         ${pendingEmployee.department || "Unassigned"},
         'active',
+        ${pendingEmployee.metadata ? JSON.stringify(pendingEmployee.metadata) : "{}"},
         CURRENT_DATE,
         NOW(),
         NOW()
@@ -117,20 +94,20 @@ export async function PATCH(req: NextRequest) {
       ON CONFLICT (email)
       DO UPDATE SET
         status = 'active',
-        updated_at = NOW(),
         name = EXCLUDED.name,
         position = EXCLUDED.position,
-        department = EXCLUDED.department
+        department = EXCLUDED.department,
+        metadata = EXCLUDED.metadata,
+        updated_at = NOW()
       RETURNING *
     `;
-    const newEmployee = insertedEmployeeResult[0];
 
-    // ✅ Delete from pending_employees
+    // 🗑 Remove pending record
     await sql`DELETE FROM pending_employees WHERE registration_id = ${registrationId}`;
 
-    // ✅ Send approval email
+    // 📧 Optional: Send approval email
     try {
-      if (newEmployee?.email) {
+      if (insertedEmployee[0]?.email) {
         const transporter = nodemailer.createTransport({
           service: "gmail",
           auth: {
@@ -141,35 +118,28 @@ export async function PATCH(req: NextRequest) {
 
         await transporter.sendMail({
           from: `"HR Department" <${process.env.SMTP_USER}>`,
-          to: newEmployee.email,
-          subject: "Your Employment Has Been Approved",
-          text: `Hi ${fullName},\n\nCongratulations! Your employment has been approved and your account is now active.\n\nWelcome aboard!\n\n— The HR Team`,
+          to: insertedEmployee[0].email,
+          subject: "Your Approval is Complete",
+          text: `Hello ${fullName},\n\nCongratulations! Your employment has been approved.\nYour employee ID is ${newId}.\n\nWelcome onboard!\n\n— HR Team`,
         });
 
-        console.log(`✅ Approval email sent to: ${newEmployee.email}`);
-      } else {
-        console.warn("⚠️ No valid email found, skipping email notification.");
+        console.log(`📩 Email sent to: ${insertedEmployee[0].email}`);
       }
     } catch (emailError) {
-      console.error("⚠️ Failed to send approval email:", emailError);
+      console.error("⚠️ Email sending error:", emailError);
     }
 
-    // ✅ Return success response
     return withCors(req, {
       success: true,
-      message: `Employee ${registrationId} approved successfully and moved to employees table.`,
-      data: newEmployee,
+      message: "Employee approved and migrated successfully.",
+      data: insertedEmployee[0],
     });
   } catch (error) {
-    console.error("❌ Error approving employee:", error);
-    return withCors(
-      req,
-      {
-        success: false,
-        error: "Failed to approve employee.",
-        details: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
+    console.error("❌ Approval error:", error);
+    return withCors(req, {
+      success: false,
+      error: "Employee approval failed.",
+      details: error instanceof Error ? error.message : String(error),
+    }, 500);
   }
 }

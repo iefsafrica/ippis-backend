@@ -88,15 +88,16 @@ model document_uploads {
 }
 
 model employees {
-  id         String   @id @db.VarChar(20)
-  name       String   @db.VarChar(255)
-  email      String   @unique @db.VarChar(255)
-  department String   @db.VarChar(100)
-  position   String   @db.VarChar(100)
-  status     String   @default("active") @db.VarChar(20)
-  join_date  DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
-  created_at DateTime @default(now()) @db.Timestamp(6)
-  updated_at DateTime @default(now()) @db.Timestamp(6)
+  id              String   @id @db.VarChar(20)
+  name            String   @db.VarChar(255)
+  email           String   @unique @db.VarChar(255)
+  department      String   @db.VarChar(100)
+  position        String   @db.VarChar(100)
+  status          String   @default("active") @db.VarChar(20)
+  join_date       DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
+  created_at      DateTime @default(now()) @db.Timestamp(6)
+  updated_at      DateTime @default(now()) @db.Timestamp(6)
+  registration_id String?
 }
 
 model employment_info {

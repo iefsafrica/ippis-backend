@@ -1,49 +1,24 @@
 {
   "pages": {
-    "/api/admin/documents/[id]/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/documents/[id]/route.js"
-    ],
-    "/api/admin/documents/[id]/approve/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/documents/[id]/approve/route.js"
-    ],
-    "/api/admin/documents/[id]/reject/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/documents/[id]/reject/route.js"
-    ],
     "/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/layout.js"
     ],
-    "/api/admin/pending/[id]/reject/route": [
+    "/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/pending/[id]/reject/route.js"
+      "static/chunks/app/page.js"
     ],
-    "/api/admin/documents/stats/route": [
+    "/api/admin/employees/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/documents/stats/route.js"
+      "static/chunks/app/api/admin/employees/route.js"
     ],
-    "/api/admin/dashboard/stats/route": [
+    "/api/admin/pending/[id]/approve/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/dashboard/stats/route.js"
-    ],
-    "/api/admin/employees/recent/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/employees/recent/route.js"
-    ],
-    "/api/admin/documents/upload/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/documents/upload/route.js"
+      "static/chunks/app/api/admin/pending/[id]/approve/route.js"
     ]
   }
 }
