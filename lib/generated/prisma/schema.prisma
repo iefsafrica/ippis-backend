@@ -98,6 +98,7 @@ model employees {
   created_at      DateTime @default(now()) @db.Timestamp(6)
   updated_at      DateTime @default(now()) @db.Timestamp(6)
   registration_id String?
+  metadata        Json?
 }
 
 model employment_info {

@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
       return errorResponse("NIN must be exactly 11 digits.", 400);
     }
 
-    // Call external verification service
+    // --- 1️⃣ Verify NIN Externally ---
     const result = await verifyNIN(nin);
 
     if (!result || typeof result.verified !== "boolean") {
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     const data = result.data ?? {};
     const verificationFields = result.verified ? extractVerificationFields(data) : {};
 
-    // Check existing registration
+    // --- 2️⃣ Check or Create Registration ---
     let existingRegistration = await prisma.registrations.findFirst({
       where: { nin },
       orderBy: { created_at: "desc" },
@@ -43,25 +43,32 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Prepare and sanitize payload
+    // --- 3️⃣ Sanitize Payload ---
     const rawPayload = {
       ...verificationFields,
       nin,
       registration_id: existingRegistration.id,
     };
+
     const safePayload = sanitizeForPostgres(rawPayload);
 
-    // Debug null bytes
+    // Detect null byte values
     const nullByteFields = findNullBytes(safePayload);
     if (nullByteFields.length > 0) {
-      console.warn("⚠️ Null bytes detected in fields:", nullByteFields);
+      console.warn("⚠️ Null bytes detected in:", nullByteFields);
     }
 
-    // Prisma upsert (updatedAt handled automatically)
+    // --- 4️⃣ UPSERT into DB (Fixed updatedAt mismatch) ---
     const savedVerification = await prisma.verificationData.upsert({
       where: { registration_id: existingRegistration.id },
-      update: safePayload,
-      create: safePayload,
+      update: {
+        ...safePayload,
+        updated_at: new Date(),
+      },
+      create: {
+        ...safePayload,
+        updated_at: new Date(),
+      },
     });
 
     return NextResponse.json({
@@ -71,9 +78,9 @@ export async function POST(request: NextRequest) {
       data,
       verificationId: savedVerification.id,
     });
+
   } catch (err) {
     console.error("❌ NIN verification error:", err);
-    if (err instanceof Error) console.error(err.stack);
     return errorResponse(
       "Verification failed",
       500,
@@ -83,13 +90,10 @@ export async function POST(request: NextRequest) {
 }
 
 /* ------------------ Helpers ------------------ */
-function errorResponse(message: string, status: number, errorDetail?: string) {
+
+function errorResponse(message: string, status: number, detail?: string) {
   return NextResponse.json(
-    {
-      success: false,
-      message,
-      ...(errorDetail && { error: errorDetail }),
-    },
+    { success: false, message, ...(detail && { error: detail }) },
     { status }
   );
 }
@@ -100,37 +104,35 @@ function generateRegistrationId() {
   return `IPPIS-${part1}-${part2}`;
 }
 
-// ------------------ Deep Sanitization for Postgres ------------------
-function sanitizeForPostgres(obj: any): any {
-  if (obj == null) return null;
+/* ------------------ Sanitization ------------------ */
 
-  if (typeof obj === "string") {
-    let s = obj.replace(/\u0000/g, "");
-    s = s.replace(/[\x00-\x1F\x7F]/g, "");
-    return s.trim() || null;
+function sanitizeForPostgres(value: any): any {
+  if (value == null) return null;
+
+  if (typeof value === "string") {
+    const cleaned = value.replace(/\u0000/g, "").replace(/[\x00-\x1F\x7F]/g, "");
+    return cleaned.trim() || null;
   }
 
-  if (obj instanceof Buffer) return obj;
-  if (Array.isArray(obj)) return obj.map(sanitizeForPostgres);
-  if (obj instanceof Date) return obj;
-  if (typeof obj === "object") {
-    const cleaned: Record<string, any> = {};
-    for (const key in obj) {
-      if (key === "photo" || key === "signature") {
-        cleaned[key] = base64ToBuffer(obj[key]);
-      } else {
-        cleaned[key] = sanitizeForPostgres(obj[key]);
-      }
+  if (Array.isArray(value)) return value.map(sanitizeForPostgres);
+  if (value instanceof Date || value instanceof Buffer) return value;
+
+  if (typeof value === "object") {
+    const result: Record<string, any> = {};
+    for (const key in value) {
+      result[key] =
+        key === "photo" || key === "signature"
+          ? base64ToBuffer(value[key])
+          : sanitizeForPostgres(value[key]);
     }
-    return cleaned;
+    return result;
   }
 
-  return obj;
+  return value;
 }
 
 function findNullBytes(obj: any, path = ""): string[] {
   const fields: string[] = [];
-  if (obj == null) return fields;
 
   if (typeof obj === "string" && obj.includes("\u0000")) {
     fields.push(path || "root");
@@ -138,23 +140,18 @@ function findNullBytes(obj: any, path = ""): string[] {
   }
 
   if (Array.isArray(obj)) {
-    obj.forEach((v, idx) => {
-      fields.push(...findNullBytes(v, `${path}[${idx}]`));
-    });
-    return fields;
-  }
-
-  if (typeof obj === "object") {
+    obj.forEach((v, i) => fields.push(...findNullBytes(v, `${path}[${i}]`)));
+  } else if (typeof obj === "object" && obj !== null) {
     for (const key in obj) {
       fields.push(...findNullBytes(obj[key], path ? `${path}.${key}` : key));
     }
-    return fields;
   }
 
   return fields;
 }
 
-// ------------------ Verification Fields Mapping ------------------
+/* ------------------ Field Mapping ------------------ */
+
 function extractVerificationFields(data: Record<string, any>) {
   return {
     vnin: data.vnin,
@@ -170,22 +167,16 @@ function extractVerificationFields(data: Record<string, any>) {
     residence_address: data.residenceAddress,
     residence_lga: data.residenceLga,
     residence_state: data.residenceState,
-    birthdate: parseDate(data.birthDate) ?? new Date(), // default to now if empty
+    birthdate: parseDate(data.birthDate) ?? new Date(),
     photo: base64ToBuffer(data.photo),
     signature: base64ToBuffer(data.signature),
   };
 }
 
-function parseDate(value: any): Date | null {
-  if (!value || typeof value !== "string") return null;
-  const parts = value.split("-");
-  if (parts.length === 3) {
-    const [day, month, year] = parts.map(Number);
-    if (day && month && year) return new Date(year, month - 1, day);
-    return null;
-  }
-  const d = new Date(value);
-  return isNaN(d.getTime()) ? null : d;
+function parseDate(str: any): Date | null {
+  if (!str || typeof str !== "string") return null;
+  const [day, month, year] = str.split("-").map(Number);
+  return day && month && year ? new Date(year, month - 1, day) : null;
 }
 
 function base64ToBuffer(base64?: string | null): Buffer | null {
