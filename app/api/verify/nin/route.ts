@@ -58,17 +58,14 @@ export async function POST(request: NextRequest) {
       console.warn("⚠️ Null bytes detected in:", nullByteFields);
     }
 
-    // --- 4️⃣ UPSERT into DB (Fixed updatedAt mismatch) ---
+    // --- 4️⃣ Remove timestamp fields before upsert ---
+    const { created_at, updated_at, createdAt, updatedAt, ...cleanPayload } = safePayload as any;
+
+    // --- 5️⃣ UPSERT into DB ---
     const savedVerification = await prisma.verificationData.upsert({
       where: { registration_id: existingRegistration.id },
-      update: {
-        ...safePayload,
-        updated_at: new Date(),
-      },
-      create: {
-        ...safePayload,
-        updated_at: new Date(),
-      },
+      update: cleanPayload,
+      create: { ...cleanPayload, registration_id: existingRegistration.id },
     });
 
     return NextResponse.json({

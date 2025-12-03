@@ -1,9 +1,9 @@
 {
   "pages": {
-    "/api/verify/nin/route": [
+    "/api/admin/documents/status/[id]/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/verify/nin/route.js"
+      "static/chunks/app/api/admin/documents/status/[id]/route.js"
     ]
   }
 }

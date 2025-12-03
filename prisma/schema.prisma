@@ -227,8 +227,8 @@ model registrations {
 }
 
 model VerificationData {
-  id                      String      @id @default(uuid())
-  nin                     String?     @unique
+  id                      String        @id @default(uuid())
+  nin                     String?       @unique
   vnin                    String?
   title                   String?
   surname                 String?
@@ -276,14 +276,14 @@ model VerificationData {
   tracking_id             String?
   userid                  String?
   registration_id         String        @unique
-  registration            registrations @relation(fields: [registration_id], references: [id])
-
-  created_at              DateTime      @default(now())
-  updated_at              DateTime      @updatedAt
+  createdAt               DateTime      @default(now()) @map("created_at")
+  updatedAt               DateTime      @updatedAt @map("updated_at")
+  
+  registration            registrations @relation(fields: [registration_id], references: [registration_id], onDelete: Cascade, onUpdate: NoAction)
+  employees               employees[]
 
   @@map("VerificationData")
 }
-
 
 
 model Account {
