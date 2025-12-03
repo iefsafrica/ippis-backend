@@ -5,19 +5,23 @@ import { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
 
-// Preflight for Postman/browser
+// Preflight
 export async function OPTIONS(req: Request) {
   return handleOptions(req as unknown as NextRequest);
 }
 
 // GET /api/admin/documents/status/:id
-export async function GET(req: Request, context: { params: { id: string } }) {
+export async function GET(req: NextRequest) {
   try {
-    const employeeId = context.params?.id;
+    // Extract the id from the URL
+    const { pathname } = req.nextUrl;
+    // Assuming the path is /api/admin/documents/status/<id>
+    const parts = pathname.split("/");
+    const employeeId = parts[parts.length - 1];
 
     if (!employeeId) {
       return withCors(
-        req as unknown as NextRequest,
+        req,
         { success: false, error: "Employee ID is required" },
         400
       );
@@ -35,29 +39,25 @@ export async function GET(req: Request, context: { params: { id: string } }) {
     `;
 
     const totalDocuments = 4;
-    // No record found = never uploaded
+
     if (result.length === 0) {
-      return withCors(
-        req as unknown as NextRequest,
-        {
-          success: true,
-          uploaded: false,
-          message: "User has not uploaded any documents",
-          pendingUploads: totalDocuments,
-          uploadedDocuments: 0,
-          details: {
-            appointmentLetter: false,
-            educationalCertificates: false,
-            profileImage: false,
-            signature: false,
-          },
-        }
-      );
+      return withCors(req, {
+        success: true,
+        uploaded: false,
+        message: "User has not uploaded any documents",
+        uploadedDocuments: 0,
+        pendingUploads: totalDocuments,
+        details: {
+          appointmentLetter: false,
+          educationalCertificates: false,
+          profileImage: false,
+          signature: false,
+        },
+      });
     }
 
     const doc = result[0]!;
 
-    // Count uploaded documents
     const uploadedDocuments = [
       doc.appointment_letter_path,
       doc.educational_certificates_path,
@@ -67,37 +67,30 @@ export async function GET(req: Request, context: { params: { id: string } }) {
 
     const pending = totalDocuments - uploadedDocuments;
 
-    return withCors(
-      req as unknown as NextRequest,
-      {
-        success: true,
-        uploaded: uploadedDocuments > 0,
-        message:
-          uploadedDocuments === totalDocuments
-            ? "All documents uploaded"
-            : uploadedDocuments === 0
-            ? "User has not uploaded any documents"
-            : "Some documents are still pending",
-        uploadedDocuments,
-        pendingUploads: pending,
-        details: {
-          appointmentLetter: !!doc.appointment_letter_path,
-          educationalCertificates: !!doc.educational_certificates_path,
-          profileImage: !!doc.profile_image_path,
-          signature: !!doc.signature_path,
-        },
-      }
-    );
+    return withCors(req, {
+      success: true,
+      uploaded: uploadedDocuments > 0,
+      message:
+        uploadedDocuments === totalDocuments
+          ? "All documents uploaded"
+          : uploadedDocuments === 0
+          ? "User has not uploaded any documents"
+          : "Some documents are still pending",
+      uploadedDocuments,
+      pendingUploads: pending,
+      details: {
+        appointmentLetter: !!doc.appointment_letter_path,
+        educationalCertificates: !!doc.educational_certificates_path,
+        profileImage: !!doc.profile_image_path,
+        signature: !!doc.signature_path,
+      },
+    });
   } catch (error) {
     console.error("Error:", error);
-    return withCors(
-      req as unknown as NextRequest,
-      {
-        success: false,
-        error: "Server error",
-        details: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
+    return withCors(req, {
+      success: false,
+      error: "Server error",
+      details: error instanceof Error ? error.message : String(error),
+    }, 500);
   }
 }
