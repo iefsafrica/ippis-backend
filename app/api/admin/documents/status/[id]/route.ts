@@ -15,7 +15,6 @@ export async function GET(req: NextRequest) {
   try {
     // Extract the id from the URL
     const { pathname } = req.nextUrl;
-    // Assuming the path is /api/admin/documents/status/<id>
     const parts = pathname.split("/");
     const employeeId = parts[parts.length - 1];
 
@@ -38,59 +37,56 @@ export async function GET(req: NextRequest) {
       LIMIT 1
     `;
 
-    const totalDocuments = 4;
-
     if (result.length === 0) {
       return withCors(req, {
         success: true,
         uploaded: false,
         message: "User has not uploaded any documents",
         uploadedDocuments: 0,
-        pendingUploads: totalDocuments,
-        details: {
-          appointmentLetter: false,
-          educationalCertificates: false,
-          profileImage: false,
-          signature: false,
-        },
+        documents: {}
       });
     }
 
     const doc = result[0]!;
 
-    const uploadedDocuments = [
-      doc.appointment_letter_path,
-      doc.educational_certificates_path,
-      doc.profile_image_path,
-      doc.signature_path,
-    ].filter(Boolean).length;
+    // Build only the uploaded documents
+    const uploadedDetails: Record<string, string> = {};
 
-    const pending = totalDocuments - uploadedDocuments;
+    if (doc.appointment_letter_path) {
+      uploadedDetails.appointmentLetter = doc.appointment_letter_path;
+    }
+    if (doc.educational_certificates_path) {
+      uploadedDetails.educationalCertificates = doc.educational_certificates_path;
+    }
+    if (doc.profile_image_path) {
+      uploadedDetails.profileImage = doc.profile_image_path;
+    }
+    if (doc.signature_path) {
+      uploadedDetails.signature = doc.signature_path;
+    }
+
+    const uploadedCount = Object.keys(uploadedDetails).length;
 
     return withCors(req, {
       success: true,
-      uploaded: uploadedDocuments > 0,
+      uploaded: uploadedCount > 0,
       message:
-        uploadedDocuments === totalDocuments
-          ? "All documents uploaded"
-          : uploadedDocuments === 0
+        uploadedCount === 0
           ? "User has not uploaded any documents"
-          : "Some documents are still pending",
-      uploadedDocuments,
-      pendingUploads: pending,
-      details: {
-        appointmentLetter: !!doc.appointment_letter_path,
-        educationalCertificates: !!doc.educational_certificates_path,
-        profileImage: !!doc.profile_image_path,
-        signature: !!doc.signature_path,
-      },
+          : "Uploaded documents retrieved successfully",
+      uploadedDocuments: uploadedCount,
+      documents: uploadedDetails
     });
   } catch (error) {
     console.error("Error:", error);
-    return withCors(req, {
-      success: false,
-      error: "Server error",
-      details: error instanceof Error ? error.message : String(error),
-    }, 500);
+    return withCors(
+      req,
+      {
+        success: false,
+        error: "Server error",
+        details: error instanceof Error ? error.message : String(error)
+      },
+      500
+    );
   }
 }
