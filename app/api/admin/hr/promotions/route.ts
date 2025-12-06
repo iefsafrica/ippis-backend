@@ -84,9 +84,9 @@ export async function POST(req: NextRequest) {
     // Insert promotion
     const inserted = await sql`
       INSERT INTO employee_promotions
-        (employee_id, previous_position, new_position, effective_date, reason, created_at, updated_at)
+        (employee_id, department, previous_position, new_position, effective_date, reason, created_at, updated_at)
       VALUES
-        (${employee_id}, ${previous_position}, ${new_position}, ${effective_date}, ${reason ?? null}, NOW(), NOW())
+        (${employee_id}, ${previous_position}, ${previous_position}, ${new_position}, ${effective_date}, ${reason ?? null}, NOW(), NOW())
       RETURNING *
     `;
 
