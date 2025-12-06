@@ -238,7 +238,7 @@ model VerificationData {
   maiden_name           String?
   tracking_id           String?
   createdAt             DateTime      @default(now())
-  updatedAt             DateTime
+  updatedAt             DateTime      @default(now())
   birthcountry          String?
   birthdate             String?
   birthlga              String?
