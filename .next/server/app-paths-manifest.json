@@ -1,4 +1,4 @@
 {
-  "/api/admin/hr/promotions/route": "app/api/admin/hr/promotions/route.js",
-  "/_not-found/page": "app/_not-found/page.js"
+  "/api/admin/hr/promotions/[employee_id]/route": "app/api/admin/hr/promotions/[employee_id]/route.js",
+  "/api/admin/hr/promotions/route": "app/api/admin/hr/promotions/route.js"
 }
