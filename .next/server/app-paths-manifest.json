@@ -1,4 +1,3 @@
 {
-  "/api/admin/hr/promotions/[employee_id]/route": "app/api/admin/hr/promotions/[employee_id]/route.js",
-  "/api/admin/hr/promotions/route": "app/api/admin/hr/promotions/route.js"
+  "/api/admin/hr/promotions/employees/[employee_id]/route": "app/api/admin/hr/promotions/employees/[employee_id]/route.js"
 }

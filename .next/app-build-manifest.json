@@ -19,6 +19,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/hr/promotions/[employee_id]/route.js"
+    ],
+    "/api/admin/hr/promotions/employees/[employee_id]/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/hr/promotions/employees/[employee_id]/route.js"
     ]
   }
 }
