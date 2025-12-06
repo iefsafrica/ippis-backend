@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
     // Safe JSON parsing
     let body: {
       employee_id?: string;
+      department?: string;
       previous_position?: string;
       new_position?: string;
       effective_date?: string;
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { employee_id, previous_position, new_position, effective_date, reason } = body;
+    const { employee_id, department, previous_position, new_position, effective_date, reason } = body;
 
     // Validate required fields
     if (!employee_id || !previous_position || !new_position || !effective_date) {
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
       INSERT INTO employee_promotions
         (employee_id, department, previous_position, new_position, effective_date, reason, created_at, updated_at)
       VALUES
-        (${employee_id}, ${previous_position}, ${previous_position}, ${new_position}, ${effective_date}, ${reason ?? null}, NOW(), NOW())
+        (${employee_id}, ${department ?? null}, ${previous_position}, ${new_position}, ${effective_date}, ${reason ?? null}, NOW(), NOW())
       RETURNING *
     `;
 
