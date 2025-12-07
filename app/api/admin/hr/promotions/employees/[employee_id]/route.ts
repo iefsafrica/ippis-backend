@@ -6,20 +6,17 @@ export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
 
 // OPTIONS
-export async function OPTIONS(req: NextRequest) {
+export async function OPTIONS(req: Request) {
   return handleOptions(req);
 }
 
 // PATCH — Update employee
-export async function PATCH(
-  req: NextRequest,
-  context: { params: { employee_id: string } }
-) {
+export async function PATCH(req: Request, context: any) {
   try {
-    const employee_id = context.params.employee_id;
+    const employee_id = context?.params?.employee_id;
 
     if (!employee_id) {
-      return withCors(req, { success: false, error: "Employee ID missing." }, 400);
+      return withCors(req, { success: false, error: "Employee ID is required." }, 400);
     }
 
     const allowedFields = ["name", "email", "department", "position", "status"];
@@ -27,11 +24,7 @@ export async function PATCH(
     const body = await req.json().catch(() => null);
 
     if (!body || typeof body !== "object") {
-      return withCors(
-        req,
-        { success: false, error: "Invalid JSON body." },
-        400
-      );
+      return withCors(req, { success: false, error: "Invalid JSON body." }, 400);
     }
 
     const updates = Object.entries(body).filter(([key]) =>
@@ -41,19 +34,16 @@ export async function PATCH(
     if (updates.length === 0) {
       return withCors(
         req,
-        { success: false, error: "No valid fields to update." },
+        { success: false, error: "No valid fields provided for update." },
         400
       );
     }
 
     // Build SET clause
-    const setExpressions = updates.map(
-      ([key], i) => `${key} = $${i + 1}`
-    );
-
+    const setExpressions = updates.map(([key], i) => `${key} = $${i + 1}`);
     const values = updates.map(([, val]) => val);
 
-    // Add employee ID at the end
+    // Push employee ID
     values.push(employee_id);
 
     const query = `
@@ -64,19 +54,19 @@ export async function PATCH(
       RETURNING *
     `;
 
-    const rows = await sql.query(query, values);
+    const result = await sql.query(query, values);
 
-    if (!rows || rows.length === 0) {
+    if (!result || result.length === 0) {
       return withCors(req, { success: false, error: "Employee not found." }, 404);
     }
 
     return withCors(req, {
       success: true,
       message: "Employee details updated successfully.",
-      data: rows[0],
+      data: result[0],
     });
   } catch (error) {
-    console.error("Update error:", error);
+    console.error("PATCH Error:", error);
 
     return withCors(
       req,
