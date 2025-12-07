@@ -3,21 +3,20 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "../../../../../../../lib/cors";
 import { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
-
 const sql = neon(process.env.DATABASE_URL!);
 
-// OPTIONS handler
+// OPTIONS
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
 }
 
-// PATCH handler
+// PATCH — Update employee
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { employee_id: string } }
+  context: { params: { employee_id: string } }
 ) {
   try {
-    const { employee_id } = params;
+    const employee_id = context.params.employee_id;
 
     if (!employee_id) {
       return withCors(req, { success: false, error: "Employee ID missing." }, 400);
@@ -25,7 +24,15 @@ export async function PATCH(
 
     const allowedFields = ["name", "email", "department", "position", "status"];
 
-    const body = (await req.json()) as Record<string, any>;
+    const body = await req.json().catch(() => null);
+
+    if (!body || typeof body !== "object") {
+      return withCors(
+        req,
+        { success: false, error: "Invalid JSON body." },
+        400
+      );
+    }
 
     const updates = Object.entries(body).filter(([key]) =>
       allowedFields.includes(key)
@@ -46,7 +53,7 @@ export async function PATCH(
 
     const values = updates.map(([, val]) => val);
 
-    // Add employee_id as last value ($N)
+    // Add employee ID at the end
     values.push(employee_id);
 
     const query = `
@@ -57,7 +64,6 @@ export async function PATCH(
       RETURNING *
     `;
 
-    // FIX: sql.query returns array of rows
     const rows = await sql.query(query, values);
 
     if (!rows || rows.length === 0) {
