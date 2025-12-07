@@ -1,28 +1,34 @@
-// app/api/admin/hr/employees/[employee_id]/route.ts
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "../../../../../../../lib/cors";
 import { NextRequest } from "next/server";
-export const dynamic = "force-dynamic";
+import { headers } from "next/headers";
+
 const sql = neon(process.env.DATABASE_URL!);
 
 // OPTIONS
-export async function OPTIONS(req: Request) {
+export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
 }
 
-// PATCH — Update employee
-export async function PATCH(req: Request, context: any) {
+// PATCH — Update employee details
+export async function PATCH(req: NextRequest) {
   try {
-    const employee_id = context?.params?.employee_id;
+    //  FIX: headers() is async in Edge Runtime
+    const h = await headers();
+    const employee_id = h.get("x-nextjs-param-employee_id");
 
     if (!employee_id) {
-      return withCors(req, { success: false, error: "Employee ID is required." }, 400);
+      return withCors(
+        req,
+        { success: false, error: "Missing employee_id parameter." },
+        400
+      );
     }
 
     const allowedFields = ["name", "email", "department", "position", "status"];
 
+    // Read body
     const body = await req.json().catch(() => null);
-
     if (!body || typeof body !== "object") {
       return withCors(req, { success: false, error: "Invalid JSON body." }, 400);
     }
@@ -32,24 +38,20 @@ export async function PATCH(req: Request, context: any) {
     );
 
     if (updates.length === 0) {
-      return withCors(
-        req,
-        { success: false, error: "No valid fields provided for update." },
-        400
-      );
+      return withCors(req, {
+        success: false,
+        error: "No valid fields provided for update.",
+      });
     }
 
-    // Build SET clause
-    const setExpressions = updates.map(([key], i) => `${key} = $${i + 1}`);
-    const values = updates.map(([, val]) => val);
+    const setExpr = updates.map(([key], idx) => `${key} = $${idx + 1}`);
+    const values = updates.map(([, value]) => value);
 
-    // Push employee ID
     values.push(employee_id);
 
     const query = `
       UPDATE employees
-      SET ${setExpressions.join(", ")},
-          updated_at = NOW()
+      SET ${setExpr.join(", ")}, updated_at = NOW()
       WHERE id = $${values.length}
       RETURNING *
     `;
@@ -65,15 +67,13 @@ export async function PATCH(req: Request, context: any) {
       message: "Employee details updated successfully.",
       data: result[0],
     });
-  } catch (error) {
-    console.error("PATCH Error:", error);
-
+  } catch (err: any) {
     return withCors(
       req,
       {
         success: false,
         error: "Failed to update employee details.",
-        details: error instanceof Error ? error.message : String(error),
+        details: err?.message ?? String(err),
       },
       500
     );
