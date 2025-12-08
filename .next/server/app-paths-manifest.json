@@ -1,1 +1,3 @@
-{}
+{
+  "/api/admin/hr/promotions/employees/route": "app/api/admin/hr/promotions/employees/route.js"
+}

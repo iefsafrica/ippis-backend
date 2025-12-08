@@ -1,29 +1,9 @@
 {
   "pages": {
-    "/layout": [
+    "/api/admin/hr/promotions/employees/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/layout.js"
-    ],
-    "/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/page.js"
-    ],
-    "/api/admin/hr/promotions/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/hr/promotions/route.js"
-    ],
-    "/api/admin/hr/promotions/[employee_id]/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/hr/promotions/[employee_id]/route.js"
-    ],
-    "/api/admin/hr/promotions/employees/[employee_id]/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/hr/promotions/employees/[employee_id]/route.js"
+      "static/chunks/app/api/admin/hr/promotions/employees/route.js"
     ]
   }
 }
