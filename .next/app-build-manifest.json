@@ -1,9 +1,9 @@
 {
   "pages": {
-    "/api/admin/hr/promotions/employees/route": [
+    "/api/admin/hr/awards/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/hr/promotions/employees/route.js"
+      "static/chunks/app/api/admin/hr/awards/route.js"
     ]
   }
 }
