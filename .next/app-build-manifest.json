@@ -4,6 +4,16 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/hr/awards/route.js"
+    ],
+    "/api/admin/hr/travel/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/hr/travel/route.js"
+    ],
+    "/api/admin/hr/promotions/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/hr/promotions/route.js"
     ]
   }
 }
