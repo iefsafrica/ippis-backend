@@ -497,6 +497,33 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/api/admin/hr/resignation/approve/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/admin/hr/resignation/approve">> = Specific
+  const handler = {} as typeof import("../../app/api/admin/hr/resignation/approve/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/api/admin/hr/resignation/disapprove/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/admin/hr/resignation/disapprove">> = Specific
+  const handler = {} as typeof import("../../app/api/admin/hr/resignation/disapprove/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/api/admin/hr/resignation/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/admin/hr/resignation">> = Specific
+  const handler = {} as typeof import("../../app/api/admin/hr/resignation/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../app/api/admin/hr/transfer/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/admin/hr/transfer">> = Specific

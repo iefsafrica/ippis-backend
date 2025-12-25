@@ -88,20 +88,21 @@ model document_uploads {
 }
 
 model employees {
-  id                  String                @id @db.VarChar(20)
-  name                String                @db.VarChar(255)
-  email               String                @unique @db.VarChar(255)
-  department          String                @db.VarChar(100)
-  position            String                @db.VarChar(100)
-  status              String                @default("active") @db.VarChar(20)
-  join_date           DateTime              @default(dbgenerated("CURRENT_DATE")) @db.Date
-  created_at          DateTime              @default(now()) @db.Timestamp(6)
-  updated_at          DateTime              @default(now()) @db.Timestamp(6)
-  registration_id     String?
-  metadata            Json?
-  employee_awards     employee_awards[]
-  employee_promotions employee_promotions[]
-  employee_transfers  employee_transfers[]
+  id                    String                  @id @db.VarChar(20)
+  name                  String                  @db.VarChar(255)
+  email                 String                  @unique @db.VarChar(255)
+  department            String                  @db.VarChar(100)
+  position              String                  @db.VarChar(100)
+  status                String                  @default("active") @db.VarChar(20)
+  join_date             DateTime                @default(dbgenerated("CURRENT_DATE")) @db.Date
+  created_at            DateTime                @default(now()) @db.Timestamp(6)
+  updated_at            DateTime                @default(now()) @db.Timestamp(6)
+  registration_id       String?
+  metadata              Json?
+  employee_awards       employee_awards[]
+  employee_promotions   employee_promotions[]
+  employee_resignations employee_resignations[]
+  employee_transfers    employee_transfers[]
 }
 
 model employment_info {
@@ -419,4 +420,25 @@ model employee_transfers {
   employees       employees @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_employee_transfer_employee")
 
   @@index([employee_id], map: "idx_employee_transfers_employee_id")
+}
+
+model employee_resignations {
+  id               Int       @id @default(autoincrement())
+  employee_id      String    @db.VarChar(20)
+  employee_name    String    @db.VarChar(255)
+  department       String    @db.VarChar(100)
+  position         String    @db.VarChar(150)
+  notice_date      DateTime  @db.Date
+  resignation_date DateTime  @db.Date
+  reason           String    @db.VarChar(500)
+  exit_interview   String
+  notes            String?
+  status           String?   @default("pending") @db.VarChar(30)
+  approved_by      String?   @db.VarChar(100)
+  approved_at      DateTime? @db.Timestamp(6)
+  created_at       DateTime? @default(now()) @db.Timestamp(6)
+  updated_at       DateTime? @default(now()) @db.Timestamp(6)
+  employees        employees @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_employee_resignation_employee")
+
+  @@index([employee_id], map: "idx_employee_resignations_employee_id")
 }

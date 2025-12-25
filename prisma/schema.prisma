@@ -444,4 +444,31 @@ model employee_transfers {
 
   @@index([employee_id])
 }
+model employee_resignations {
+  id                Int      @id @default(autoincrement())
+
+  employee_id       String   @db.VarChar(20)
+  employee_name     String   @db.VarChar(255)
+  department        String   @db.VarChar(100)
+  position          String   @db.VarChar(150)
+
+  notice_date       DateTime @db.Date
+  resignation_date  DateTime @db.Date
+
+  reason            String   @db.VarChar(500)
+  exit_interview    String
+  notes             String?
+
+  status            String   @default("pending") @db.VarChar(30)
+
+  approved_by       String?
+  approved_at       DateTime?
+
+  created_at        DateTime @default(now()) @db.Timestamp(6)
+  updated_at        DateTime @default(now()) @db.Timestamp(6)
+
+  employees         employees @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+
+  @@index([employee_id])
+}
 
