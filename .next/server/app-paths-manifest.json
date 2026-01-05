@@ -1,4 +1,3 @@
 {
-  "/api/admin/hr/resignation/route": "app/api/admin/hr/resignation/route.js",
-  "/api/admin/hr/resignation/disapprove/route": "app/api/admin/hr/resignation/disapprove/route.js"
+  "/api/admin/hr/employee-complaints/route": "app/api/admin/hr/employee-complaints/route.js"
 }
