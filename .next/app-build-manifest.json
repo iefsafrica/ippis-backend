@@ -1,24 +1,19 @@
 {
   "pages": {
-    "/api/admin/hr/employee-complaints/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/hr/employee-complaints/route.js"
-    ],
-    "/api/admin/hr/employee-warnings/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/hr/employee-warnings/route.js"
-    ],
     "/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/layout.js"
     ],
-    "/api/admin/hr/upload/route": [
+    "/api/admin/hr/terminations/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/hr/upload/route.js"
+      "static/chunks/app/api/admin/hr/terminations/route.js"
+    ],
+    "/_not-found/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/_not-found/page.js"
     ]
   }
 }

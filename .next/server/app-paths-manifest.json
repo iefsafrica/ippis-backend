@@ -1,3 +1,4 @@
 {
-  "/api/admin/hr/upload/route": "app/api/admin/hr/upload/route.js"
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/admin/hr/terminations/route": "app/api/admin/hr/terminations/route.js"
 }
