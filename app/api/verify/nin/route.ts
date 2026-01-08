@@ -1,92 +1,176 @@
 ﻿import { type NextRequest, NextResponse } from "next/server";
 import { verifyNIN } from "@lib/verification-service";
 import { prisma } from "@lib/prisma";
+import { withCors, handleOptions } from "../../../../lib/cors";
 
 const NIN_REGEX = /^\d{11}$/;
 
+/**
+ * In-memory lock (prevents same-NIN concurrency per instance)
+ */
+const ninLocks = new Set<string>();
+
 export async function POST(request: NextRequest) {
+  let nin = "";
+
   try {
     const body = (await request.json()) as { nin?: string };
-    const nin = typeof body.nin === "string" ? body.nin.trim() : "";
+    nin = typeof body.nin === "string" ? body.nin.trim() : "";
 
     if (!NIN_REGEX.test(nin)) {
       return errorResponse("NIN must be exactly 11 digits.", 400);
     }
 
-    // --- 1️⃣ Verify NIN Externally ---
+    /* ---------------- 1️⃣ BLOCK PARALLEL REQUESTS ---------------- */
+
+    if (ninLocks.has(nin)) {
+      const existing = await prisma.verificationData.findUnique({
+        where: { nin },
+        select: {
+          registration: {
+            select: { registration_Id: true }, // ✅ FIX
+          },
+        },
+      });
+
+      return conflictResponse(existing?.registration?.registration_Id);
+    }
+
+    ninLocks.add(nin);
+
+    /* ---------------- 2️⃣ CHECK IF NIN ALREADY EXISTS ---------------- */
+
+    const existingVerification = await prisma.verificationData.findUnique({
+      where: { nin },
+      select: {
+        registration: {
+          select: { registration_Id: true }, // ✅ FIX
+        },
+      },
+    });
+
+    if (existingVerification) {
+      return conflictResponse(
+        existingVerification.registration.registration_Id
+      );
+    }
+
+    /* ---------------- 3️⃣ VERIFY NIN EXTERNALLY ---------------- */
+
     const result = await verifyNIN(nin);
 
     if (!result || typeof result.verified !== "boolean") {
       return errorResponse("Invalid response from verification service.", 502);
     }
 
-    const data = result.data ?? {};
-    const verificationFields = result.verified ? extractVerificationFields(data) : {};
+    if (!result.verified) {
+      return errorResponse(
+        result.message ?? "NIN verification failed",
+        400
+      );
+    }
 
-    // --- 2️⃣ Check or Create Registration ---
-    let existingRegistration = await prisma.registrations.findFirst({
-      where: { nin },
-      orderBy: { created_at: "desc" },
-      select: { id: true },
-    });
+    const verificationFields = extractVerificationFields(result.data ?? {});
 
-    if (!existingRegistration) {
-      const registration_Id = generateRegistrationId();
-      existingRegistration = await prisma.registrations.create({
-        data: {
-          registration_Id,
-          nin,
-          status: "draft",
-          current_step: "verification",
-        },
-        select: { id: true },
+    /* ---------------- 4️⃣ TRANSACTION (DB SAFE) ---------------- */
+
+    const verification = await prisma.$transaction(async (tx) => {
+      /* --- 4a. Get or create registration --- */
+
+      let registration = await tx.registrations.findFirst({
+        where: { nin },
+        orderBy: { created_at: "desc" },
+        select: { registration_Id: true }, // ✅ STRING ID ONLY
       });
-    }
 
-    // --- 3️⃣ Sanitize Payload ---
-    const rawPayload = {
-      ...verificationFields,
-      nin,
-      registration_id: existingRegistration.id,
-    };
+      if (!registration) {
+        registration = await tx.registrations.create({
+          data: {
+            registration_Id: generateRegistrationId(),
+            nin,
+            status: "draft",
+            current_step: "verification",
+          },
+          select: { registration_Id: true },
+        });
+      }
 
-    const safePayload = sanitizeForPostgres(rawPayload);
+      /* --- 4b. Prepare payload --- */
 
-    // Detect null byte values
-    const nullByteFields = findNullBytes(safePayload);
-    if (nullByteFields.length > 0) {
-      console.warn("⚠️ Null bytes detected in:", nullByteFields);
-    }
+      const payload = sanitizeForPostgres({
+        ...verificationFields,
+        nin,
+      });
 
-    // --- 4️⃣ Remove timestamp fields before upsert ---
-    const { created_at, updated_at, createdAt, updatedAt, ...cleanPayload } = safePayload as any;
+      /* --- 4c. Create verification data --- */
 
-    // --- 5️⃣ UPSERT into DB ---
-    const savedVerification = await prisma.verificationData.upsert({
-      where: { registration_id: existingRegistration.id },
-      update: cleanPayload,
-      create: { ...cleanPayload, registration_id: existingRegistration.id },
+      return tx.verificationData.create({
+        data: {
+          ...payload,
+          registration_id: registration.registration_Id, // ✅ CORRECT LINK
+        },
+        select: {
+          id: true,
+          registration: {
+            select: { registration_Id: true }, // ✅ RETURN PUBLIC ID
+          },
+        },
+      });
     });
+
+    /* ---------------- 5️⃣ SUCCESS ---------------- */
 
     return NextResponse.json({
       success: true,
-      verified: result.verified,
-      message: result.message ?? "Verification completed",
-      data,
-      verificationId: savedVerification.id,
+      verified: true,
+      message: "NIN verified successfully",
+      registrationId: verification.registration.registration_Id, // ✅ FIX
+      verificationId: verification.id,
     });
+  } catch (err: any) {
+    /* ---------------- HANDLE DB UNIQUE RACE CONDITION ---------------- */
 
-  } catch (err) {
+    if (
+      typeof err?.message === "string" &&
+      err.message.includes("Unique constraint failed")
+    ) {
+      const existing = await prisma.verificationData.findUnique({
+        where: { nin },
+        select: {
+          registration: {
+            select: { registration_Id: true }, // ✅ FIX
+          },
+        },
+      });
+
+      return conflictResponse(existing?.registration?.registration_Id);
+    }
+
     console.error("❌ NIN verification error:", err);
+
     return errorResponse(
       "Verification failed",
       500,
       err instanceof Error ? err.message : undefined
     );
+  } finally {
+    /* ---------------- ALWAYS RELEASE LOCK ---------------- */
+    if (nin) ninLocks.delete(nin);
   }
 }
 
-/* ------------------ Helpers ------------------ */
+/* ------------------ RESPONSES ------------------ */
+
+function conflictResponse(registrationId?: string | null) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "This NIN has already been processed",
+      registrationId: registrationId ?? null,
+    },
+    { status: 409 }
+  );
+}
 
 function errorResponse(message: string, status: number, detail?: string) {
   return NextResponse.json(
@@ -95,24 +179,29 @@ function errorResponse(message: string, status: number, detail?: string) {
   );
 }
 
+/* ------------------ HELPERS ------------------ */
+
 function generateRegistrationId() {
   const part1 = Math.floor(100000 + Math.random() * 900000);
   const part2 = Math.floor(1000 + Math.random() * 9000);
   return `IPPIS-${part1}-${part2}`;
 }
 
-/* ------------------ Sanitization ------------------ */
+/* ------------------ SANITIZATION ------------------ */
 
 function sanitizeForPostgres(value: any): any {
   if (value == null) return null;
 
   if (typeof value === "string") {
-    const cleaned = value.replace(/\u0000/g, "").replace(/[\x00-\x1F\x7F]/g, "");
-    return cleaned.trim() || null;
+    const cleaned = value
+      .replace(/\u0000/g, "")
+      .replace(/[\x00-\x1F\x7F]/g, "")
+      .trim();
+    return cleaned || null;
   }
 
-  if (Array.isArray(value)) return value.map(sanitizeForPostgres);
   if (value instanceof Date || value instanceof Buffer) return value;
+  if (Array.isArray(value)) return value.map(sanitizeForPostgres);
 
   if (typeof value === "object") {
     const result: Record<string, any> = {};
@@ -128,26 +217,7 @@ function sanitizeForPostgres(value: any): any {
   return value;
 }
 
-function findNullBytes(obj: any, path = ""): string[] {
-  const fields: string[] = [];
-
-  if (typeof obj === "string" && obj.includes("\u0000")) {
-    fields.push(path || "root");
-    return fields;
-  }
-
-  if (Array.isArray(obj)) {
-    obj.forEach((v, i) => fields.push(...findNullBytes(v, `${path}[${i}]`)));
-  } else if (typeof obj === "object" && obj !== null) {
-    for (const key in obj) {
-      fields.push(...findNullBytes(obj[key], path ? `${path}.${key}` : key));
-    }
-  }
-
-  return fields;
-}
-
-/* ------------------ Field Mapping ------------------ */
+/* ------------------ FIELD MAPPING ------------------ */
 
 function extractVerificationFields(data: Record<string, any>) {
   return {
@@ -164,15 +234,17 @@ function extractVerificationFields(data: Record<string, any>) {
     residence_address: data.residenceAddress,
     residence_lga: data.residenceLga,
     residence_state: data.residenceState,
-    birthdate: parseDate(data.birthDate) ?? new Date(),
+    birthdate: parseDate(data.birthDate),
     photo: base64ToBuffer(data.photo),
     signature: base64ToBuffer(data.signature),
   };
 }
 
-function parseDate(str: any): Date | null {
-  if (!str || typeof str !== "string") return null;
-  const [day, month, year] = str.split("-").map(Number);
+/* ------------------ UTILS ------------------ */
+
+function parseDate(value: any): Date | null {
+  if (!value || typeof value !== "string") return null;
+  const [day, month, year] = value.split("-").map(Number);
   return day && month && year ? new Date(year, month - 1, day) : null;
 }
 
