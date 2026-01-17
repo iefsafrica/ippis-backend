@@ -15,10 +15,10 @@
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/hr/calendar/events/route.js"
     ],
-    "/_not-found/page": [
+    "/api/admin/hr/leaves/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/_not-found/page.js"
+      "static/chunks/app/api/admin/hr/leaves/route.js"
     ]
   }
 }

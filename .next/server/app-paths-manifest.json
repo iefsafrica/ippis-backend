@@ -1,4 +1,3 @@
 {
-  "/_not-found/page": "app/_not-found/page.js",
-  "/api/admin/hr/calendar/events/route": "app/api/admin/hr/calendar/events/route.js"
+  "/api/admin/hr/leaves/route": "app/api/admin/hr/leaves/route.js"
 }
