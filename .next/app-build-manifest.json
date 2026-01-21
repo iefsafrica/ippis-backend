@@ -19,6 +19,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/hr/leaves/route.js"
+    ],
+    "/api/admin/hr/projects/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/hr/projects/route.js"
     ]
   }
 }
