@@ -423,22 +423,132 @@ model employee_transfers {
 }
 
 model employee_resignations {
-  id               Int       @id @default(autoincrement())
-  employee_id      String    @db.VarChar(20)
-  employee_name    String    @db.VarChar(255)
-  department       String    @db.VarChar(100)
-  position         String    @db.VarChar(150)
-  notice_date      DateTime  @db.Date
-  resignation_date DateTime  @db.Date
-  reason           String    @db.VarChar(500)
-  exit_interview   String
-  notes            String?
-  status           String?   @default("pending") @db.VarChar(30)
-  approved_by      String?   @db.VarChar(100)
-  approved_at      DateTime? @db.Timestamp(6)
-  created_at       DateTime? @default(now()) @db.Timestamp(6)
-  updated_at       DateTime? @default(now()) @db.Timestamp(6)
-  employees        employees @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_employee_resignation_employee")
+  id                 Int       @id @default(autoincrement())
+  employee_id        String    @db.VarChar(20)
+  employee_name      String    @db.VarChar(255)
+  department         String    @db.VarChar(100)
+  position           String    @db.VarChar(150)
+  notice_date        DateTime  @db.Date
+  resignation_date   DateTime  @db.Date
+  reason             String    @db.VarChar(500)
+  exit_interview     String
+  notes              String?
+  status             String?   @default("pending") @db.VarChar(30)
+  approved_by        String?   @db.VarChar(100)
+  approved_at        DateTime? @db.Timestamp(6)
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
+  updated_at         DateTime? @default(now()) @db.Timestamp(6)
+  disapproved_by     String?   @db.VarChar(100)
+  disapproved_at     DateTime? @db.Timestamp(6)
+  disapproval_reason String?
+  employees          employees @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_employee_resignation_employee")
 
   @@index([employee_id], map: "idx_employee_resignations_employee_id")
+}
+
+model employee_complaints {
+  id            Int       @id @default(autoincrement())
+  employee_id   String    @db.VarChar(50)
+  employee_name String    @db.VarChar(150)
+  complaint     String
+  department    String?   @db.VarChar(100)
+  status        String?   @default("pending") @db.VarChar(50)
+  priority      String?   @default("medium") @db.VarChar(50)
+  assigned_to   String?   @db.VarChar(150)
+  submitted_on  DateTime? @default(now()) @db.Timestamptz(6)
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([employee_id], map: "idx_employee_complaints_employee_id")
+  @@index([priority], map: "idx_employee_complaints_priority")
+  @@index([status], map: "idx_employee_complaints_status")
+}
+
+model employee_leaves {
+  id                Int       @id @default(autoincrement())
+  employee_name     String
+  leave_type        String
+  start_date        DateTime  @db.Date
+  end_date          DateTime  @db.Date
+  reason            String
+  emergency_contact String?
+  status            String?   @default("pending")
+  created_at        DateTime? @default(now()) @db.Timestamp(6)
+  updated_at        DateTime? @default(now()) @db.Timestamp(6)
+  employee_id       String?
+}
+
+model employee_projects {
+  id                    Int       @id @default(autoincrement())
+  project_title         String
+  start_date            DateTime  @db.Date
+  end_date              DateTime  @db.Date
+  project_manager_id    String
+  team_member_ids       String[]
+  project_description   String?
+  project_status        String    @default("pending")
+  priority              String    @default("medium")
+  budget                Decimal?  @default(0) @db.Decimal(12, 2)
+  completion_percentage Int?      @default(0)
+  created_at            DateTime? @default(now()) @db.Timestamp(6)
+  updated_at            DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model employee_terminations {
+  id                 Int       @id @default(autoincrement())
+  employee_id        String    @db.VarChar(50)
+  employee_name      String    @db.VarChar(255)
+  position           String?   @db.VarChar(255)
+  department         String?   @db.VarChar(255)
+  termination_type   String    @db.VarChar(50)
+  termination_reason String
+  termination_date   DateTime  @db.Date
+  status             String?   @default("active") @db.VarChar(50)
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
+  updated_at         DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model employee_warnings {
+  id                   Int       @id @default(autoincrement())
+  employee_id          String    @db.VarChar(50)
+  employee_name        String    @db.VarChar(150)
+  department           String?   @db.VarChar(100)
+  warning_subject      String    @db.VarChar(200)
+  warning_description  String
+  warning_type         String    @db.VarChar(50)
+  warning_date         DateTime  @db.Date
+  expiry_date          DateTime? @db.Date
+  issued_by            String    @db.VarChar(150)
+  supporting_documents String?
+  status               String?   @default("active") @db.VarChar(50)
+  created_at           DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([employee_id], map: "idx_employee_warnings_employee_id")
+  @@index([status], map: "idx_employee_warnings_status")
+  @@index([warning_type], map: "idx_employee_warnings_warning_type")
+}
+
+model goal_types {
+  id           Int       @id @default(autoincrement())
+  goal_type    String    @db.VarChar(255)
+  description  String
+  status       String    @db.VarChar(50)
+  created_date DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model hr_events {
+  id          Int       @id @default(autoincrement())
+  title       String    @db.VarChar(255)
+  event_type  String    @db.VarChar(100)
+  start_date  DateTime  @db.Date
+  end_date    DateTime  @db.Date
+  all_day     Boolean?  @default(false)
+  department  String?   @db.VarChar(100)
+  location    String?   @db.VarChar(255)
+  description String?
+  attendees   String[]
+  status      String?   @default("active") @db.VarChar(50)
+  created_at  DateTime? @default(now()) @db.Timestamp(6)
+  updated_at  DateTime? @default(now()) @db.Timestamp(6)
 }

@@ -6,7 +6,6 @@ export const dynamic = "force-dynamic";
 /* =========================
    Types
 ========================= */
-
 type NinRequestBody = {
   nin: string;
 };
@@ -14,43 +13,33 @@ type NinRequestBody = {
 type NetappsNinResponse = {
   error?: boolean;
   message?: string;
-  data?: {
-    title?: string;
-    firstname?: string;
-    middlename?: string;
-    surname?: string;
-    nin?: string;
-    photo?: string;
-    [key: string]: any;
-  };
+  data?: any;
   timestamp?: string;
 };
 
 /* =========================
    Preflight
 ========================= */
-
 export async function OPTIONS(req: Request) {
   return handleOptions(req as unknown as NextRequest);
 }
 
 /* =========================
-   POST /api/kyc/nin
+   POST /api/verify/nin
 ========================= */
-
 export async function POST(req: NextRequest) {
   try {
+    console.log("---- NIN Verification Request Started ----");
+
     /* ---------- Parse body ---------- */
     const body = (await req.json()) as NinRequestBody;
     const { nin } = body;
 
+    console.log("Incoming NIN:", nin);
+
     /* ---------- Validate input ---------- */
     if (!nin) {
-      return withCors(
-        req,
-        { success: false, error: "NIN is required" },
-        400
-      );
+      return withCors(req, { success: false, error: "NIN is required" }, 400);
     }
 
     if (!/^\d{11}$/.test(nin)) {
@@ -61,35 +50,44 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    /* ---------- Load env vars ---------- */
+    /* ---------- Load env vars and clean key ---------- */
     const NETAPPS_URL = process.env.NETAPPS_URL;
-    const NETAPPS_SECRET_KEY = process.env.NETAPPS_SECRET_KEY;
+    const rawKey = process.env.NETAPPS_SECRET_KEY;
 
-    if (!NETAPPS_URL || !NETAPPS_SECRET_KEY) {
+    if (!NETAPPS_URL || !rawKey) {
       return withCors(
         req,
-        {
-          success: false,
-          error: "Netapps KYC service is not configured",
-        },
+        { success: false, error: "Netapps KYC service is not configured" },
         500
       );
     }
+
+    // Clean key: remove whitespace & zero-width characters
+    const NETAPPS_SECRET_KEY = rawKey.trim().replace(/[\u200B-\u200D\uFEFF]/g, "");
+
+    console.log("Raw key length:", rawKey.length);
+    console.log("Cleaned key length:", NETAPPS_SECRET_KEY.length);
+    console.log("Key preview:", NETAPPS_SECRET_KEY.substring(0, 10) + "...");
 
     /* ---------- Call Netapps ---------- */
     const response = await fetch(NETAPPS_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "api-key": NETAPPS_SECRET_KEY, // ✅ CORRECT AUTH HEADER
+        "api-key": NETAPPS_SECRET_KEY,
       },
       body: JSON.stringify({ nin }),
     });
 
+    console.log("Netapps response status:", response.status);
+
     const data = (await response.json()) as NetappsNinResponse;
 
-    /* ---------- Handle Netapps failure ---------- */
+    console.log("Netapps response body:", data);
+
+    /* ---------- Handle failure ---------- */
     if (!response.ok || data?.error) {
+      console.log("Netapps validation failed.");
       return withCors(
         req,
         {
@@ -102,6 +100,7 @@ export async function POST(req: NextRequest) {
     }
 
     /* ---------- Success ---------- */
+    console.log("NIN validation successful.");
     return withCors(req, {
       success: true,
       message: data.message ?? "NIN validated successfully",
@@ -110,7 +109,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("NIN Validation Error:", error);
-
     return withCors(
       req,
       {
