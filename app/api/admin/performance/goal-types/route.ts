@@ -210,12 +210,17 @@ export async function DELETE(req: NextRequest) {
 
     const exists = await tableExists("goal_types");
     if (!exists)
-      return withCors(req, { success: false, error: "'goal_types' table does not exist" }, 404);
+      return withCors(
+        req,
+        { success: false, error: "'goal_types' table does not exist" },
+        404
+      );
 
+    // Delete and only return id to verify existence
     const deleted = await sql`
       DELETE FROM goal_types
       WHERE id = ${id}
-      RETURNING *
+      RETURNING id
     `;
 
     if (!deleted.length)
@@ -224,7 +229,6 @@ export async function DELETE(req: NextRequest) {
     return withCors(req, {
       success: true,
       message: "Goal type deleted successfully",
-      data: deleted[0],
     });
 
   } catch (error) {

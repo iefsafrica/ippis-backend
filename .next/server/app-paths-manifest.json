@@ -1,4 +1,4 @@
 {
-  "/_not-found/page": "app/_not-found/page.js",
-  "/api/admin/performance/goal-types/route": "app/api/admin/performance/goal-types/route.js"
+  "/api/admin/performance/goal-types/route": "app/api/admin/performance/goal-types/route.js",
+  "/_not-found/page": "app/_not-found/page.js"
 }
