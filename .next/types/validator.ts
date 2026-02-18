@@ -92,6 +92,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/api/admin/auth/login/request-otp/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/admin/auth/login/request-otp">> = Specific
+  const handler = {} as typeof import("../../app/api/admin/auth/login/request-otp/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../app/api/admin/auth/login/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/admin/auth/login">> = Specific

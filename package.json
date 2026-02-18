@@ -27,7 +27,7 @@
         "jsonwebtoken": "^9.0.2",
         "next": "^15.1.6",
         "next-auth": "^4.24.11",
-        "nodemailer": "^7.0.10",
+        "nodemailer": "^7.0.13",
         "papaparse": "^5.5.3",
         "pg": "^8.16.3",
         "prisma": "^6.10.1",
@@ -37,6 +37,7 @@
         "zod": "^4.1.12"
     },
     "devDependencies": {
+        "@types/bcryptjs": "^2.4.6",
         "@types/cors": "^2.8.17",
         "@types/express": "^4.17.21",
         "@types/jsonwebtoken": "^9.0.5",

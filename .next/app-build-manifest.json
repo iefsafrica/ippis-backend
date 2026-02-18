@@ -1,19 +1,9 @@
 {
   "pages": {
-    "/api/admin/dashboard/chart/route": [
+    "/api/admin/auth/login/request-otp/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/dashboard/chart/route.js"
-    ],
-    "/api/admin/dashboard/stats/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/dashboard/stats/route.js"
-    ],
-    "/api/admin/pending/[id]/delete/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/pending/[id]/delete/route.js"
+      "static/chunks/app/api/admin/auth/login/request-otp/route.js"
     ]
   }
 }
