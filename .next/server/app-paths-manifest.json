@@ -1,4 +1,3 @@
 {
-  "/api/admin/performance/goal-types/route": "app/api/admin/performance/goal-types/route.js",
-  "/_not-found/page": "app/_not-found/page.js"
+  "/api/admin/pending/[id]/delete/route": "app/api/admin/pending/[id]/delete/route.js"
 }
