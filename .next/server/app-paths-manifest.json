@@ -1,4 +1,3 @@
 {
-  "/api/admin/auth/login/verify-otp/route": "app/api/admin/auth/login/verify-otp/route.js",
-  "/api/admin/auth/login/request-otp/route": "app/api/admin/auth/login/request-otp/route.js"
+  "/api/admin/auth/login/route": "app/api/admin/auth/login/route.js"
 }
