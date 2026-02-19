@@ -1,3 +1,3 @@
 {
-  "/api/admin/organization/company/route": "app/api/admin/organization/company/route.js"
+  "/api/admin/auth/login/route": "app/api/admin/auth/login/route.js"
 }
