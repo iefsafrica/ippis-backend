@@ -1,4 +1,5 @@
 ﻿import nodemailer from "nodemailer";
+import { withCors, handleOptions } from "../lib/cors";
 
 // Create transporter using env variables
 export const transporter = nodemailer.createTransport({

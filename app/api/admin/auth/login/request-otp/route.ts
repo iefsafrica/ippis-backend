@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withCors, handleOptions } from "../../../../../../lib/cors";
 import { neon } from "@neondatabase/serverless";
 import crypto from "crypto";
 import { sendOTPEmail } from "@lib/email";
