@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withCors, handleOptions } from "../../../../../lib/cors";
 import { neon } from '@neondatabase/serverless';
+
 
 const sql = neon(process.env.DATABASE_URL!);
 
