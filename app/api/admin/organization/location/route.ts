@@ -8,7 +8,7 @@ const sql = neon(process.env.DATABASE_URL!);
 // -------------------------
 type Location = {
   id: string;
-  company_id: string;
+  company_code: string; // stores company_code like "IPPIS-C 00001"
   name: string;
   address: string | null;
   city: string | null;
@@ -16,11 +16,12 @@ type Location = {
   country: string | null;
   status: 'active' | 'inactive';
   created_at: string;
+  company_name?: string; // optional, joined from companies table
 };
 
 type CreateLocationBody = {
   name: string;
-  company_id?: string; // optional: auto-assign first company if not provided
+  company_code: string; // REQUIRED now
   address?: string;
   city?: string;
   state?: string;
@@ -29,7 +30,7 @@ type CreateLocationBody = {
 };
 
 type UpdateLocationBody = {
-  id: string | number;
+  id: string;
   name?: string;
   address?: string;
   city?: string;
@@ -47,30 +48,31 @@ export async function GET(req: NextRequest) {
     const id = searchParams.get('id');
 
     if (id) {
-      const result = await sql`SELECT * FROM locations WHERE id = ${id}`;
+      const result = await sql`
+        SELECT l.*, c.name AS company_name
+        FROM locations l
+        LEFT JOIN companies c
+          ON l.company_code = c.company_code
+        WHERE l.id = ${id}
+      `;
       const location = result.at(0) as Location | undefined;
 
       if (!location) {
         return NextResponse.json({ success: false, message: 'Location not found' }, { status: 404 });
       }
 
-      return NextResponse.json({ success: true, data: location });
+      return NextResponse.json({ success: true, message: 'Location retrieved successfully', data: location });
     }
 
-    const allLocations = await sql`SELECT * FROM locations ORDER BY created_at DESC`;
-    const locations: Location[] = allLocations.map((row) => ({
-      id: String(row.id),
-      company_id: String(row.company_id),
-      name: row.name,
-      address: row.address,
-      city: row.city,
-      state: row.state,
-      country: row.country,
-      status: row.status,
-      created_at: row.created_at,
-    }));
+    const allLocations = await sql`
+      SELECT l.*, c.name AS company_name
+      FROM locations l
+      LEFT JOIN companies c
+        ON l.company_code = c.company_code
+      ORDER BY l.created_at DESC
+    `;
 
-    return NextResponse.json({ success: true, data: locations });
+    return NextResponse.json({ success: true, message: 'Locations retrieved successfully', data: allLocations });
 
   } catch (error) {
     console.error('Location GET error:', error);
@@ -84,27 +86,27 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as CreateLocationBody;
-    let { name, company_id, address, city, state, country, status } = body;
+    const { name, company_code, address, city, state, country, status } = body;
 
-    if (!name) {
-      return NextResponse.json({ success: false, message: 'Location name is required' }, { status: 400 });
+    if (!name || !company_code) {
+      return NextResponse.json({ success: false, message: 'Location name and company_code are required' }, { status: 400 });
     }
 
-    // Auto-assign first company if company_id not provided
-    if (!company_id) {
-      const companyResult = await sql`SELECT id FROM companies ORDER BY created_at ASC LIMIT 1`;
-      const company = companyResult.at(0) as { id: string } | undefined;
-      if (!company) {
-        return NextResponse.json({ success: false, message: 'No company found. Create company first.' }, { status: 400 });
-      }
-      company_id = company.id;
+    // Verify the company exists
+    const companyExists = await sql`
+      SELECT company_code
+      FROM companies
+      WHERE TRIM(company_code) = TRIM(${company_code})
+    `;
+    if (!companyExists.length) {
+      return NextResponse.json({ success: false, message: 'Invalid company_code provided' }, { status: 400 });
     }
 
     const result = await sql`
-      INSERT INTO locations 
-        (company_id, name, address, city, state, country, status, created_at)
-      VALUES 
-        (${company_id}, ${name}, ${address ?? null}, ${city ?? null}, ${state ?? null}, ${country ?? null}, ${status ?? 'active'}, NOW())
+      INSERT INTO locations
+        (company_code, name, address, city, state, country, status, created_at)
+      VALUES
+        (${company_code}, ${name}, ${address ?? null}, ${city ?? null}, ${state ?? null}, ${country ?? null}, ${status ?? 'active'}, NOW())
       RETURNING *
     `;
     const location = result.at(0) as Location | undefined;
@@ -113,7 +115,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Failed to create location' }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data: location });
+    return NextResponse.json({ success: true, message: 'Location created successfully', data: location });
 
   } catch (error) {
     console.error('Location POST error:', error);
@@ -151,7 +153,7 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Location not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: location });
+    return NextResponse.json({ success: true, message: 'Location updated successfully', data: location });
 
   } catch (error) {
     console.error('Location PUT error:', error);

@@ -1,5 +1,10 @@
 {
   "pages": {
+    "/api/admin/organization/location/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/organization/location/route.js"
+    ],
     "/api/admin/organization/company/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
