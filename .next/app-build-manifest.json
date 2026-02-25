@@ -44,6 +44,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/performance/appraiser/route.js"
+    ],
+    "/api/verify/nin/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/verify/nin/route.js"
     ]
   }
 }

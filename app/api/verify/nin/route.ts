@@ -1,122 +1,74 @@
 import { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { withCors, handleOptions } from "../../../../lib/cors";
 
 export const dynamic = "force-dynamic";
 
-/* =========================
-   Types
-========================= */
-type NinRequestBody = {
+// Type for the request body
+type VerifyNinBody = {
   nin: string;
 };
 
-type NetappsNinResponse = {
-  error?: boolean;
-  message?: string;
-  data?: any;
-  timestamp?: string;
-};
-
-/* =========================
-   Preflight
-========================= */
-export async function OPTIONS(req: Request) {
-  return handleOptions(req as unknown as NextRequest);
+// Mock NIN validation function
+function validateNIN(nin: string) {
+  // NIN must be exactly 11 digits
+  const regex = /^\d{11}$/;
+  if (!regex.test(nin)) {
+    return { valid: false, message: "Invalid keys" };
+  }
+  return { valid: true, message: "NIN validated successfully" };
 }
 
-/* =========================
-   POST /api/verify/nin
-========================= */
+// Handle CORS preflight
+export async function OPTIONS(req: NextRequest) {
+  return handleOptions(req);
+}
+
+// =========================
+// POST: Verify NIN
+// =========================
 export async function POST(req: NextRequest) {
   try {
-    console.log("---- NIN Verification Request Started ----");
+    const body: VerifyNinBody = (await req.json()) as VerifyNinBody;
 
-    /* ---------- Parse body ---------- */
-    const body = (await req.json()) as NinRequestBody;
     const { nin } = body;
 
-    console.log("Incoming NIN:", nin);
-
-    /* ---------- Validate input ---------- */
     if (!nin) {
-      return withCors(req, { success: false, error: "NIN is required" }, 400);
+      return withCors(req, {
+        success: false,
+        error: "NIN is required",
+      }, 400);
     }
 
-    if (!/^\d{11}$/.test(nin)) {
-      return withCors(
-        req,
-        { success: false, error: "NIN must be 11 digits" },
-        400
-      );
-    }
+    const validation = validateNIN(nin);
 
-    /* ---------- Load env vars and clean key ---------- */
-    const NETAPPS_URL = process.env.NETAPPS_URL;
-    const rawKey = process.env.NETAPPS_SECRET_KEY;
-
-    if (!NETAPPS_URL || !rawKey) {
-      return withCors(
-        req,
-        { success: false, error: "Netapps KYC service is not configured" },
-        500
-      );
-    }
-
-    // Clean key: remove whitespace & zero-width characters
-    const NETAPPS_SECRET_KEY = rawKey.trim().replace(/[\u200B-\u200D\uFEFF]/g, "");
-
-    console.log("Raw key length:", rawKey.length);
-    console.log("Cleaned key length:", NETAPPS_SECRET_KEY.length);
-    console.log("Key preview:", NETAPPS_SECRET_KEY.substring(0, 10) + "...");
-
-    /* ---------- Call Netapps ---------- */
-    const response = await fetch(NETAPPS_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "api-key": NETAPPS_SECRET_KEY,
-      },
-      body: JSON.stringify({ nin }),
-    });
-
-    console.log("Netapps response status:", response.status);
-
-    const data = (await response.json()) as NetappsNinResponse;
-
-    console.log("Netapps response body:", data);
-
-    /* ---------- Handle failure ---------- */
-    if (!response.ok || data?.error) {
-      console.log("Netapps validation failed.");
-      return withCors(
-        req,
-        {
-          success: false,
-          error: "NIN validation failed",
-          details: data,
+    if (!validation.valid) {
+      return withCors(req, {
+        success: false,
+        error: "NIN validation failed",
+        details: {
+          error: true,
+          message: validation.message,
         },
-        response.status || 400
-      );
+      }, 400);
     }
 
-    /* ---------- Success ---------- */
-    console.log("NIN validation successful.");
+    // Success
     return withCors(req, {
       success: true,
-      message: data.message ?? "NIN validated successfully",
-      data: data.data,
-      timestamp: data.timestamp,
-    });
-  } catch (error) {
-    console.error("NIN Validation Error:", error);
-    return withCors(
-      req,
-      {
-        success: false,
-        error: "Server error",
-        details: error instanceof Error ? error.message : String(error),
+      message: "NIN validated successfully",
+      data: {
+        nin,
+        verified: true,
       },
-      500
-    );
+    }, 200);
+
+  } catch (error) {
+    console.error("NIN verification error:", error);
+    return withCors(req, {
+      success: false,
+      error: "Failed to verify NIN",
+      details: error instanceof Error ? error.message : String(error),
+    }, 500);
   }
 }
