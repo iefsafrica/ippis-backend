@@ -1,3 +1,3 @@
 {
-  "/api/admin/organization/announcement/route": "app/api/admin/organization/announcement/route.js"
+  "/api/admin/performance/goal-tracking/route": "app/api/admin/performance/goal-tracking/route.js"
 }
