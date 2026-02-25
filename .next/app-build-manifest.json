@@ -39,6 +39,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/performance/indicator/route.js"
+    ],
+    "/api/admin/performance/appraiser/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/performance/appraiser/route.js"
     ]
   }
 }
