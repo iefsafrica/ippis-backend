@@ -34,6 +34,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/performance/goal-tracking/route.js"
+    ],
+    "/api/admin/performance/indicator/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/performance/indicator/route.js"
     ]
   }
 }
