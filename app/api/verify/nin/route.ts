@@ -1,70 +1,73 @@
 import { NextRequest } from "next/server";
-import { NextResponse } from "next/server";
 import { withCors, handleOptions } from "../../../../lib/cors";
 
 export const dynamic = "force-dynamic";
 
-// Type for the request body
-type VerifyNinBody = {
-  nin: string;
-};
-
-// Mock NIN validation function
-function validateNIN(nin: string) {
-  // NIN must be exactly 11 digits
-  const regex = /^\d{11}$/;
-  if (!regex.test(nin)) {
-    return { valid: false, message: "Invalid keys" };
-  }
-  return { valid: true, message: "NIN validated successfully" };
-}
-
-// Handle CORS preflight
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
 }
 
-// =========================
-// POST: Verify NIN
-// =========================
+type NetAppsWhiteLabelResponse = {
+  error: boolean;
+  message: string;
+  kycType: string;
+  kycTypeDisplayName: string;
+  verifiedAt: string;
+  data: {
+    first_name: string;
+    last_name: string;
+    date_of_birth: string;
+    gender?: string;
+    phone?: string;
+  };
+};
+
 export async function POST(req: NextRequest) {
   try {
-    const body: VerifyNinBody = (await req.json()) as VerifyNinBody;
+    const jsonBody = await req.json();
+    const body: { nin?: string } = jsonBody ?? {};
 
-    const { nin } = body;
-
-    if (!nin) {
+    if (!body.nin) {
       return withCors(req, {
         success: false,
-        error: "NIN is required",
+        error: "nin is required",
       }, 400);
     }
 
-    const validation = validateNIN(nin);
-
-    if (!validation.valid) {
-      return withCors(req, {
-        success: false,
-        error: "NIN validation failed",
-        details: {
-          error: true,
-          message: validation.message,
+    const response = await fetch(
+      "https://kyc-api.netapps.ng/api/v1/whitelabel/verify",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-secret-key": process.env.NETAPPS_SECRET_KEY as string,
         },
+        body: JSON.stringify({
+          kycType: "nin",
+          nin: body.nin,
+        }),
+      }
+    );
+
+    const data = (await response.json()) as NetAppsWhiteLabelResponse;
+
+    if (!response.ok || data.error) {
+      return withCors(req, {
+        success: false,
+        error: "NIN verification failed",
+        details: data,
       }, 400);
     }
 
-    // Success
     return withCors(req, {
       success: true,
-      message: "NIN validated successfully",
-      data: {
-        nin,
-        verified: true,
-      },
+      message: "NIN verified successfully",
+      data,
     }, 200);
 
   } catch (error) {
-    console.error("NIN verification error:", error);
+    console.error("NetApps WhiteLabel Error:", error);
+
     return withCors(req, {
       success: false,
       error: "Failed to verify NIN",

@@ -1,54 +1,9 @@
 {
   "pages": {
-    "/api/admin/organization/location/route": [
+    "/api/timesheets/attendance/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/organization/location/route.js"
-    ],
-    "/api/admin/organization/company/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/organization/company/route.js"
-    ],
-    "/api/admin/organization/designation/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/organization/designation/route.js"
-    ],
-    "/api/admin/organization/announcement/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/organization/announcement/route.js"
-    ],
-    "/api/admin/organization/company-policy/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/organization/company-policy/route.js"
-    ],
-    "/layout": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/layout.js"
-    ],
-    "/api/admin/performance/goal-tracking/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/performance/goal-tracking/route.js"
-    ],
-    "/api/admin/performance/indicator/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/performance/indicator/route.js"
-    ],
-    "/api/admin/performance/appraiser/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/performance/appraiser/route.js"
-    ],
-    "/api/verify/nin/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/verify/nin/route.js"
+      "static/chunks/app/api/timesheets/attendance/route.js"
     ]
   }
 }
