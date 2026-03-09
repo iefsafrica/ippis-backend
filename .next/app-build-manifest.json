@@ -4,6 +4,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/timesheets/attendance/route.js"
+    ],
+    "/api/timesheets/attendance/import/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/timesheets/attendance/import/route.js"
     ]
   }
 }
