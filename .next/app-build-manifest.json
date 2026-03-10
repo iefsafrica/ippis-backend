@@ -1,14 +1,9 @@
 {
   "pages": {
-    "/api/timesheets/attendance/route": [
+    "/api/admin/employees/register/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/timesheets/attendance/route.js"
-    ],
-    "/api/timesheets/attendance/import/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/timesheets/attendance/import/route.js"
+      "static/chunks/app/api/admin/employees/register/route.js"
     ]
   }
 }

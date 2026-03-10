@@ -1,3 +1,3 @@
 {
-  "/api/timesheets/attendance/import/route": "app/api/timesheets/attendance/import/route.js"
+  "/api/admin/employees/register/route": "app/api/admin/employees/register/route.js"
 }
