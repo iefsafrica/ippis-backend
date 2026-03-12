@@ -4,6 +4,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/timesheets/attendance/date-range/route.js"
+    ],
+    "/api/timesheets/attendance/shifts/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/timesheets/attendance/shifts/route.js"
     ]
   }
 }

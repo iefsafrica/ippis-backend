@@ -1,3 +1,3 @@
 {
-  "/api/timesheets/attendance/date-range/route": "app/api/timesheets/attendance/date-range/route.js"
+  "/api/timesheets/attendance/shifts/route": "app/api/timesheets/attendance/shifts/route.js"
 }
