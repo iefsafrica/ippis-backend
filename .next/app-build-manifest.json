@@ -1,14 +1,9 @@
 {
   "pages": {
-    "/api/timesheets/attendance/date-range/route": [
+    "/api/timesheets/attendance/holidays/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/timesheets/attendance/date-range/route.js"
-    ],
-    "/api/timesheets/attendance/shifts/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/timesheets/attendance/shifts/route.js"
+      "static/chunks/app/api/timesheets/attendance/holidays/route.js"
     ]
   }
 }

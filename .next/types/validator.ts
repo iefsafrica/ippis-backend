@@ -1181,10 +1181,28 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/api/timesheets/attendance/holidays/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/timesheets/attendance/holidays">> = Specific
+  const handler = {} as typeof import("../../app/api/timesheets/attendance/holidays/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../app/api/timesheets/attendance/import/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/timesheets/attendance/import">> = Specific
   const handler = {} as typeof import("../../app/api/timesheets/attendance/import/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/api/timesheets/attendance/leaves/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/timesheets/attendance/leaves">> = Specific
+  const handler = {} as typeof import("../../app/api/timesheets/attendance/leaves/route.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check
