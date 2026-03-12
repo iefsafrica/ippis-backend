@@ -1,9 +1,9 @@
 {
   "pages": {
-    "/api/admin/employees/register/route": [
+    "/api/timesheets/attendance/date-range/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/employees/register/route.js"
+      "static/chunks/app/api/timesheets/attendance/date-range/route.js"
     ]
   }
 }
