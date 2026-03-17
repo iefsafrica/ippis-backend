@@ -1,9 +1,14 @@
 {
   "pages": {
-    "/api/timesheets/attendance/holidays/route": [
+    "/api/verify/nin/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/timesheets/attendance/holidays/route.js"
+      "static/chunks/app/api/verify/nin/route.js"
+    ],
+    "/api/admin/employees/register/personal/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/employees/register/personal/route.js"
     ]
   }
 }
