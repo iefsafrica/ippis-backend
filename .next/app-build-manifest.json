@@ -1,19 +1,9 @@
 {
   "pages": {
-    "/api/verify/nin/route": [
+    "/api/admin/documents/upload/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/verify/nin/route.js"
-    ],
-    "/api/admin/employees/register/personal/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/employees/register/personal/route.js"
-    ],
-    "/api/admin/employees/register/employment/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/employees/register/employment/route.js"
+      "static/chunks/app/api/admin/documents/upload/route.js"
     ]
   }
 }
