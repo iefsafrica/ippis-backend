@@ -9,6 +9,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/admin/employees/register/personal/route.js"
+    ],
+    "/api/admin/employees/register/employment/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/employees/register/employment/route.js"
     ]
   }
 }
