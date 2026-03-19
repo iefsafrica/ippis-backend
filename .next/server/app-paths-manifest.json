@@ -1,3 +1,3 @@
 {
-  "/api/recruitment/candidates/route": "app/api/recruitment/candidates/route.js"
+  "/api/recruitment/interviews/route": "app/api/recruitment/interviews/route.js"
 }

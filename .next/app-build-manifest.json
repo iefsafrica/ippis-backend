@@ -1,19 +1,9 @@
 {
   "pages": {
-    "/layout": [
+    "/api/recruitment/interviews/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/layout.js"
-    ],
-    "/api/recruitment/jobs/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/recruitment/jobs/route.js"
-    ],
-    "/api/recruitment/candidates/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/recruitment/candidates/route.js"
+      "static/chunks/app/api/recruitment/interviews/route.js"
     ]
   }
 }
