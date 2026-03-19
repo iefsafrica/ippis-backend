@@ -1,8 +1,8 @@
-// File: C:\Users\PC\ippis-backend\app\api\admin\documents\upload\route.ts
-import * as entry from '../../../../../../../app/api/admin/documents/upload/route.js'
+// File: C:\Users\PC\ippis-backend\app\api\recruitment\jobs\route.ts
+import * as entry from '../../../../../../app/api/recruitment/jobs/route.js'
 import type { NextRequest } from 'next/server.js'
 
-type TEntry = typeof import('../../../../../../../app/api/admin/documents/upload/route.js')
+type TEntry = typeof import('../../../../../../app/api/recruitment/jobs/route.js')
 
 type SegmentParams<T extends Object = any> = T extends Record<string, any>
   ? { [K in keyof T]: T[K] extends string ? string | string[] | undefined : never }

@@ -1,9 +1,19 @@
 {
   "pages": {
-    "/api/admin/documents/upload/route": [
+    "/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/admin/documents/upload/route.js"
+      "static/chunks/app/layout.js"
+    ],
+    "/api/recruitment/jobs/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/recruitment/jobs/route.js"
+    ],
+    "/_not-found/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/_not-found/page.js"
     ]
   }
 }
