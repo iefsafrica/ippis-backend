@@ -4,6 +4,11 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/recruitment/interviews/route.js"
+    ],
+    "/api/recruitment/cms/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/recruitment/cms/route.js"
     ]
   }
 }
