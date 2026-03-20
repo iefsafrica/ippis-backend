@@ -160,7 +160,7 @@ module.exports = require("next/dist/shared/lib/router/utils/app-paths");
 var __webpack_require__ = require("../../../../webpack-runtime.js");
 __webpack_require__.C(exports);
 var __webpack_exec__ = (moduleId) => (__webpack_require__(__webpack_require__.s = moduleId))
-var __webpack_exports__ = __webpack_require__.X(0, ["vendor-chunks/next","vendor-chunks/zod","vendor-chunks/@neondatabase"], () => (__webpack_exec__("(rsc)/./node_modules/next/dist/build/webpack/loaders/next-app-loader/index.js?name=app%2Fapi%2Frecruitment%2Fjobs%2Froute&page=%2Fapi%2Frecruitment%2Fjobs%2Froute&appPaths=&pagePath=private-next-app-dir%2Fapi%2Frecruitment%2Fjobs%2Froute.ts&appDir=C%3A%5CUsers%5CPC%5CDesktop%5Cippis-backend%5Capp&pageExtensions=tsx&pageExtensions=ts&pageExtensions=jsx&pageExtensions=js&rootDir=C%3A%5CUsers%5CPC%5CDesktop%5Cippis-backend&isDev=true&tsconfigPath=tsconfig.json&basePath=&assetPrefix=&nextConfigOutput=&preferredRegion=&middlewareConfig=e30%3D&isGlobalNotFoundEnabled=!")));
+var __webpack_exports__ = __webpack_require__.X(0, ["vendor-chunks/next","vendor-chunks/@neondatabase","vendor-chunks/zod"], () => (__webpack_exec__("(rsc)/./node_modules/next/dist/build/webpack/loaders/next-app-loader/index.js?name=app%2Fapi%2Frecruitment%2Fjobs%2Froute&page=%2Fapi%2Frecruitment%2Fjobs%2Froute&appPaths=&pagePath=private-next-app-dir%2Fapi%2Frecruitment%2Fjobs%2Froute.ts&appDir=C%3A%5CUsers%5CPC%5CDesktop%5Cippis-backend%5Capp&pageExtensions=tsx&pageExtensions=ts&pageExtensions=jsx&pageExtensions=js&rootDir=C%3A%5CUsers%5CPC%5CDesktop%5Cippis-backend&isDev=true&tsconfigPath=tsconfig.json&basePath=&assetPrefix=&nextConfigOutput=&preferredRegion=&middlewareConfig=e30%3D&isGlobalNotFoundEnabled=!")));
 module.exports = __webpack_exports__;
 
 })();

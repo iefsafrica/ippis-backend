@@ -1,9 +1,34 @@
 {
   "pages": {
+    "/api/verify/nin/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/verify/nin/route.js"
+    ],
+    "/api/admin/dashboard/stats/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/dashboard/stats/route.js"
+    ],
+    "/api/admin/dashboard/recent/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/dashboard/recent/route.js"
+    ],
+    "/api/admin/employees/recent/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/employees/recent/route.js"
+    ],
     "/api/recruitment/jobs/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/recruitment/jobs/route.js"
+    ],
+    "/api/admin/employees/register/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/admin/employees/register/route.js"
     ]
   }
 }
