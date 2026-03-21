@@ -202,18 +202,27 @@ IMPORTANT:
 Please login to the portal and upload the required documents to complete your registration.
 `;
 
-    await transporter.sendMail({
-      from: `"HR Department" <${process.env.SMTP_USER}>`,
-      to: email,
-      subject: "Employee Registration Successful",
-      text: message,
-    });
+    let emailSent = false;
+    try {
+      await transporter.sendMail({
+        from: `"HR Department" <${process.env.SMTP_USER}>`,
+        to: email,
+        subject: "Employee Registration Successful",
+        text: message,
+      });
+      console.log(`Registration email sent successfully to ${email}`);
+      emailSent = true;
+    } catch (emailError) {
+      console.error("Failed to send registration email:", emailError);
+      // Continue with registration even if email fails
+    }
 
     return withCors(req, {
       success: true,
       message: "Registration successful",
       employee_id: employeeId,
       documents_uploaded: false,
+      email_sent: emailSent,
     });
 
   } catch (error) {
