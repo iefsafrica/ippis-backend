@@ -14,6 +14,7 @@ export async function OPTIONS(req: NextRequest) {
    Types
 ------------------------- */
 interface RegistrationBody {
+  registration_id?: string;
   nin?: string;
   firstname: string;
   surname: string;
@@ -96,91 +97,107 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    /* -------------------------
-       Generate Employee ID (unique)
-    ------------------------- */
-    const employeeId = await generateRegistrationId();
+    const incomingId = body.registration_id?.trim();
+    let employeeId = "";
+    let registrationId: number | null = null;
+    let isExisting = false;
 
-    /* -------------------------
-       Insert into registrations table
-    ------------------------- */
-    const registrationRows = await sql`
-      INSERT INTO registrations (
-        registration_id,
-        status
-      )
-      VALUES (
-        ${employeeId},
-        'pending'
-      )
-      RETURNING id
-    `;
+    if (incomingId) {
+      const existing = await sql`
+        SELECT id FROM registrations WHERE registration_id = ${incomingId}
+      `;
+      if (existing.length > 0) {
+        employeeId = incomingId;
+        registrationId = existing[0]?.id;
+        isExisting = true;
+      } else {
+        employeeId = incomingId;
+        const inserted = await sql`
+          INSERT INTO registrations (registration_id, status)
+          VALUES (${employeeId}, 'pending')
+          RETURNING id
+        `;
+        registrationId = inserted[0]?.id;
+      }
+    } else {
+      employeeId = await generateRegistrationId();
+      const inserted = await sql`
+        INSERT INTO registrations (registration_id, status)
+        VALUES (${employeeId}, 'pending')
+        RETURNING id
+      `;
+      registrationId = inserted[0]?.id;
+    }
 
-    const registrationId = registrationRows[0]?.id;
-    if (!registrationId) throw new Error("Failed to create registration");
+    if (!registrationId) {
+      throw new Error("Failed to create or resolve registration");
+    }
 
-    /* -------------------------
-       Insert into VerificationData table
-       Use UUID for 'id'
-    ------------------------- */
-    await sql`
-      INSERT INTO "VerificationData" (
-        id,
-        registration_id,
-        nin,
-        firstname,
-        surname,
-        middlename,
-        email,
-        gender,
-        telephoneno,
-        birthdate,
-        state_of_origin,
-        residence_address,
-        residence_state,
-        residence_lga,
-        profession,
-        maritalstatus
-      )
-      VALUES (
-        ${uuidv4()},
-        ${registrationId},
-        ${nin ?? null},
-        ${firstname},
-        ${surname},
-        ${middlename ?? null},
-        ${email},
-        ${gender ?? null},
-        ${telephoneno ?? null},
-        ${birthdate ?? null},
-        ${state_of_origin ?? null},
-        ${residence_address ?? null},
-        ${residence_state ?? null},
-        ${residence_lga ?? null},
-        ${profession ?? null},
-        ${maritalstatus ?? null}
-      )
-    `;
+    if (!isExisting) {
+      /* -------------------------
+         Insert into VerificationData table
+         Use UUID for 'id'
+      ------------------------- */
+      await sql`
+        INSERT INTO "VerificationData" (
+          id,
+          registration_id,
+          nin,
+          firstname,
+          surname,
+          middlename,
+          email,
+          gender,
+          telephoneno,
+          birthdate,
+          state_of_origin,
+          residence_address,
+          residence_state,
+          residence_lga,
+          profession,
+          maritalstatus
+        )
+        VALUES (
+          ${uuidv4()},
+          ${registrationId},
+          ${nin ?? null},
+          ${firstname},
+          ${surname},
+          ${middlename ?? null},
+          ${email},
+          ${gender ?? null},
+          ${telephoneno ?? null},
+          ${birthdate ?? null},
+          ${state_of_origin ?? null},
+          ${residence_address ?? null},
+          ${residence_state ?? null},
+          ${residence_lga ?? null},
+          ${profession ?? null},
+          ${maritalstatus ?? null}
+        )
+      `;
 
-    /* -------------------------
-       Insert into pending_employees table
-    ------------------------- */
-    await sql`
-      INSERT INTO pending_employees (
-        registration_id,
-        email,
-        firstname,
-        surname,
-        status
-      )
-      VALUES (
-        ${employeeId},
-        ${email},
-        ${firstname},
-        ${surname},
-        'pending'
-      )
-    `;
+      /* -------------------------
+         Insert into pending_employees table
+      ------------------------- */
+      await sql`
+        INSERT INTO pending_employees (
+          registration_id,
+          email,
+          firstname,
+          surname,
+          status
+        )
+        VALUES (
+          ${employeeId},
+          ${email},
+          ${firstname},
+          ${surname},
+          'pending'
+        )
+      `;
+    }
+
 
     /* -------------------------
        Send Email
@@ -217,11 +234,34 @@ Please login to the portal and upload the required documents to complete your re
       // Continue with registration even if email fails
     }
 
+    /* -------------------------
+       Check if documents have been uploaded
+    ------------------------- */
+    const documentsUploaded = await sql`
+      SELECT 1 FROM document_uploads WHERE registration_id = ${employeeId}
+    `;
+
+    /* -------------------------
+       Check if personal info exists
+    ------------------------- */
+    const personalInfo = await sql`
+      SELECT 1 FROM personal_info WHERE registration_id = ${employeeId}
+    `;
+
+    /* -------------------------
+       Check if employment info exists
+    ------------------------- */
+    const employmentInfo = await sql`
+      SELECT 1 FROM employee_info WHERE registration_id = ${employeeId}
+    `;
+
     return withCors(req, {
       success: true,
       message: "Registration successful",
       employee_id: employeeId,
-      documents_uploaded: false,
+      documents_uploaded: documentsUploaded.length > 0,
+      personal_information_saved: personalInfo.length > 0,
+      employment_information_saved: employmentInfo.length > 0,
       email_sent: emailSent,
     });
 
