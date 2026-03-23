@@ -9,6 +9,16 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/recruitment/cms/route.js"
+    ],
+    "/api/timesheets/attendance/leaves/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/timesheets/attendance/leaves/route.js"
+    ],
+    "/api/trainings/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/trainings/route.js"
     ]
   }
 }

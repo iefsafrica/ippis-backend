@@ -1,3 +1,3 @@
 {
-  "/api/recruitment/cms/route": "app/api/recruitment/cms/route.js"
+  "/api/trainings/route": "app/api/trainings/route.js"
 }
