@@ -42,10 +42,18 @@ export async function registerStep<TBody extends Record<string, unknown>>(
     body: JSON.stringify(payload),
   });
 
-  const data: RegisterResponse = await response.json().catch((_) => ({
+  const rawData = await response.json().catch((_) => ({
     success: false,
     message: "Unexpected response format",
-  }));
+  })) as unknown;
+
+  const data: RegisterResponse =
+    typeof rawData === "object" && rawData !== null
+      ? ({ ...rawData } as RegisterResponse)
+      : {
+          success: false,
+          message: "Unexpected response format",
+        };
 
   const context: RegisterStepContext<TBody> = {
     endpoint,
