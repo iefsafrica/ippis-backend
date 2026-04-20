@@ -28,3 +28,25 @@ export async function uploadToBlob(file: File, fileName: string) {
 
   return `${BLOB_BASE_URL}/${fileName}`;
 }
+
+export async function deleteFromBlob(url: string) {
+  const token = getToken();
+  
+  // The URL might be the full public URL, we might need to extract the path or send the full URL depending on the provider.
+  // For Vercel Blob API (via fetch), you usually send a DELETE request to the API with the URL as a query param or in the body.
+  const response = await fetch(`${BLOB_BASE_URL}/delete`, {
+    method: "POST", // Vercel's manual delete API often uses POST /delete with a JSON body
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ url }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => "unknown");
+    console.error(`Failed to delete blob ${url}: ${response.status} ${details}`);
+  }
+  
+  return response.ok;
+}
