@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
 
     // validate payee
     const payee = await db`
-      SELECT payee_id FROM finance_payers WHERE payer_id = ${payee_id}
+      SELECT payee_id FROM finance_payees WHERE payee_id = ${payee_id}
     `;
     if (!payee?.[0]) {
       return withCors(req, { success: false, error: "Payee not found" }, 404);
@@ -130,10 +130,10 @@ export async function GET(req: NextRequest) {
         SELECT 
           e.*,
           COALESCE(a.account_name, 'N/A') as account_name,
-          COALESCE(p.payer_name, 'N/A') as payee_name
+          COALESCE(p.payee_name, 'N/A') as payee_name
         FROM finance_expenses e
         LEFT JOIN finance_accounts a ON e.account_id = a.account_id
-        LEFT JOIN finance_payers p ON e.payee_id = p.payer_id
+        LEFT JOIN finance_payees p ON e.payee_id = p.payee_id
         WHERE e.expense_id = ${expenseId}
       `;
 
@@ -153,10 +153,10 @@ export async function GET(req: NextRequest) {
       SELECT 
         e.*,
         COALESCE(a.account_name, 'N/A') as account_name,
-        COALESCE(p.payer_name, 'N/A') as payee_name
+        COALESCE(p.payee_name, 'N/A') as payee_name
       FROM finance_expenses e
       LEFT JOIN finance_accounts a ON e.account_id = a.account_id
-      LEFT JOIN finance_payers p ON e.payee_id = p.payer_id
+      LEFT JOIN finance_payees p ON e.payee_id = p.payee_id
       ORDER BY e.date DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
