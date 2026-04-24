@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "../../../../../../lib/cors";
+import {
+  buildRegistrationIdVariants,
+  resolveRegistrationIdInput,
+} from "../../../../../../lib/registration-id";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -36,10 +40,11 @@ export async function OPTIONS(req: NextRequest) {
 ------------------------- */
 export async function POST(req: NextRequest) {
   try {
-    /* -------------------------
-       GET REGISTRATION ID FROM HEADER
-    ------------------------- */
-    const registration_id = req.headers.get("x-registration-id");
+    const body = (await req.json()) as PersonalInfoBody;
+    const registration_id = resolveRegistrationIdInput(
+      req.headers.get("x-registration-id"),
+      (body as { registration_id?: string }).registration_id
+    );
 
     if (!registration_id) {
       return withCors(req, {
@@ -47,11 +52,6 @@ export async function POST(req: NextRequest) {
         message: "Missing registration ID in headers"
       }, 400);
     }
-
-    /* -------------------------
-       PARSE BODY
-    ------------------------- */
-    const body = (await req.json()) as PersonalInfoBody;
 
     const {
       title,
@@ -102,11 +102,16 @@ export async function POST(req: NextRequest) {
     /* -------------------------
        CHECK REGISTRATION EXISTS
     ------------------------- */
-    const existing = await sql`
-      SELECT registration_id
-      FROM registrations
-      WHERE registration_id = ${registration_id}
-    `;
+    let existing: Array<{ registration_id: string }> = [];
+    for (const candidate of buildRegistrationIdVariants(registration_id)) {
+      existing = (await sql`
+        SELECT registration_id
+        FROM registrations
+        WHERE registration_id = ${candidate}
+        LIMIT 1
+      `) as Array<{ registration_id: string }>;
+      if (existing.length > 0) break;
+    }
 
     if (existing.length === 0) {
       return withCors(req, {
@@ -114,6 +119,8 @@ export async function POST(req: NextRequest) {
         message: "Invalid registration ID"
       }, 404);
     }
+
+    const resolvedRegistrationId = existing[0]!.registration_id as string;
 
     /* -------------------------
        INSERT PERSONAL INFO
@@ -140,7 +147,7 @@ export async function POST(req: NextRequest) {
         next_of_kin_address
       )
       VALUES (
-        ${registration_id},
+        ${resolvedRegistrationId},
         ${title ?? null},
         ${surname},
         ${first_name},
@@ -159,6 +166,24 @@ export async function POST(req: NextRequest) {
         ${next_of_kin_phone_number},
         ${next_of_kin_address}
       )
+      ON CONFLICT (registration_id) DO UPDATE SET
+        title = EXCLUDED.title,
+        surname = EXCLUDED.surname,
+        first_name = EXCLUDED.first_name,
+        other_names = EXCLUDED.other_names,
+        phone_number = EXCLUDED.phone_number,
+        email = EXCLUDED.email,
+        date_of_birth = EXCLUDED.date_of_birth,
+        sex = EXCLUDED.sex,
+        marital_status = EXCLUDED.marital_status,
+        state_of_origin = EXCLUDED.state_of_origin,
+        lga = EXCLUDED.lga,
+        state_of_residence = EXCLUDED.state_of_residence,
+        address_state_of_residence = EXCLUDED.address_state_of_residence,
+        next_of_kin_name = EXCLUDED.next_of_kin_name,
+        next_of_kin_relationship = EXCLUDED.next_of_kin_relationship,
+        next_of_kin_phone_number = EXCLUDED.next_of_kin_phone_number,
+        next_of_kin_address = EXCLUDED.next_of_kin_address
     `;
 
     /* -------------------------
@@ -167,7 +192,7 @@ export async function POST(req: NextRequest) {
     await sql`
       UPDATE registrations
       SET current_step = 'employment'
-      WHERE registration_id = ${registration_id}
+      WHERE registration_id = ${resolvedRegistrationId}
     `;
 
     /* -------------------------

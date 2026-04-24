@@ -1,29 +1,11 @@
 import { NextRequest } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "../../../../lib/cors";
+import { generateRegistrationId } from "../../../../lib/register-utils";
 
 export const dynamic = "force-dynamic";
 
 const sql = neon(process.env.DATABASE_URL!);
-
-/* -------------------------
-   Generate Registration ID
-------------------------- */
-async function generateRegistrationId(): Promise<string> {
-  let nextIdNum = 1;
-  let newId = "";
-
-  while (true) {
-    newId = `IPPIS-${String(nextIdNum).padStart(4, "0")}`;
-    const existing = await sql`
-      SELECT id FROM registrations WHERE registration_id = ${newId}
-    `;
-    if (existing.length === 0) break;
-    nextIdNum++;
-  }
-
-  return newId;
-}
 
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);

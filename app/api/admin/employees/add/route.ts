@@ -1,6 +1,10 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "../../../../../lib/cors"
 import { NextRequest } from "next/server"
+import {
+  canonicalizeRegistrationId,
+  normalizeRegistrationId,
+} from "../../../../../lib/registration-id"
 
 export const dynamic = "force-dynamic"
 
@@ -37,14 +41,14 @@ async function generateRegistrationId() {
   let nextNumber = 1
 
   if (result.length > 0 && result[0]?.registration_id) {
-    const lastId: string = result[0].registration_id
-    const match = lastId.match(/IPPIS (\d+)/)
+    const lastId: string = normalizeRegistrationId(result[0].registration_id)
+    const match = lastId.match(/IPPIS(\d+)/)
     if (match && match[1]) {
       nextNumber = parseInt(match[1], 10) + 1
     }
   }
 
-  return `IPPIS ${String(nextNumber).padStart(3, "0")}`
+  return canonicalizeRegistrationId(`IPPIS-${String(nextNumber).padStart(4, "0")}`)
 }
 
 // Handle CORS preflight requests
@@ -131,7 +135,16 @@ export async function POST(req: NextRequest) {
       INSERT INTO pending_employees
         (registration_id, firstname, surname, email, department, position, status, source, submission_date, created_at, updated_at)
       VALUES
-        (${registrationId}, ${firstname}, ${surname}, ${email}, ${department}, ${position}, 'pending', 'form', NOW(), NOW(), NOW())
+        (${registrationId}, ${firstname}, ${surname}, ${email}, ${department}, ${position}, 'pending_approval', 'form', NOW(), NOW(), NOW())
+      ON CONFLICT (registration_id) DO UPDATE SET
+        firstname = EXCLUDED.firstname,
+        surname = EXCLUDED.surname,
+        email = EXCLUDED.email,
+        department = EXCLUDED.department,
+        position = EXCLUDED.position,
+        status = 'pending_approval',
+        source = EXCLUDED.source,
+        updated_at = NOW()
       RETURNING *
     `
     const employee = inserted[0]

@@ -3,6 +3,11 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "../../../../../lib/cors";
 import nodemailer from "nodemailer";
 import { v4 as uuidv4 } from "uuid";
+import {
+  buildRegistrationIdVariants,
+  resolveRegistrationIdInput,
+} from "../../../../../lib/registration-id";
+import { generateRegistrationId } from "../../../../../lib/register-utils";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -10,9 +15,6 @@ export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
 }
 
-/* -------------------------
-   Types
-------------------------- */
 interface RegistrationBody {
   registration_id?: string;
   nin?: string;
@@ -31,9 +33,6 @@ interface RegistrationBody {
   maritalstatus?: string;
 }
 
-/* -------------------------
-   Mail Transport
-------------------------- */
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT || 587),
@@ -44,30 +43,150 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-/* -------------------------
-   Generate Registration ID (unique)
-------------------------- */
-async function generateRegistrationId(): Promise<string> {
-  let nextIdNum = 1;
-  let newId = "";
-
-  while (true) {
-    newId = `IPPIS-${String(nextIdNum).padStart(4, "0")}`; // 4 digits
-    const existing = await sql`
-      SELECT id
+async function findRegistrationByAnyFormat(input: string) {
+  for (const candidate of buildRegistrationIdVariants(input)) {
+    const rows = await sql`
+      SELECT id, registration_id, status, current_step
       FROM registrations
-      WHERE registration_id = ${newId}
+      WHERE registration_id = ${candidate}
+      LIMIT 1
     `;
-    if (existing.length === 0) break; // ID is unique
-    nextIdNum++;
+
+    if (rows.length > 0) {
+      return rows[0] as {
+        id: number;
+        registration_id: string;
+        status: string;
+        current_step: string;
+      };
+    }
   }
 
-  return newId;
+  return null;
 }
 
-/* -------------------------
-   Employee Registration
-------------------------- */
+async function upsertVerificationData(input: {
+  registrationId: number;
+  body: RegistrationBody;
+}) {
+  const { registrationId, body } = input;
+
+  await sql`
+    INSERT INTO "VerificationData" (
+      id,
+      registration_id,
+      nin,
+      firstname,
+      surname,
+      middlename,
+      email,
+      gender,
+      telephoneno,
+      birthdate,
+      state_of_origin,
+      residence_address,
+      residence_state,
+      residence_lga,
+      profession,
+      maritalstatus
+    )
+    VALUES (
+      ${uuidv4()},
+      ${registrationId},
+      ${body.nin ?? null},
+      ${body.firstname},
+      ${body.surname},
+      ${body.middlename ?? null},
+      ${body.email},
+      ${body.gender ?? null},
+      ${body.telephoneno ?? null},
+      ${body.birthdate ?? null},
+      ${body.state_of_origin ?? null},
+      ${body.residence_address ?? null},
+      ${body.residence_state ?? null},
+      ${body.residence_lga ?? null},
+      ${body.profession ?? null},
+      ${body.maritalstatus ?? null}
+    )
+    ON CONFLICT (registration_id) DO UPDATE SET
+      nin = COALESCE(EXCLUDED.nin, "VerificationData".nin),
+      firstname = EXCLUDED.firstname,
+      surname = EXCLUDED.surname,
+      middlename = EXCLUDED.middlename,
+      email = EXCLUDED.email,
+      gender = EXCLUDED.gender,
+      telephoneno = EXCLUDED.telephoneno,
+      birthdate = EXCLUDED.birthdate,
+      state_of_origin = EXCLUDED.state_of_origin,
+      residence_address = EXCLUDED.residence_address,
+      residence_state = EXCLUDED.residence_state,
+      residence_lga = EXCLUDED.residence_lga,
+      profession = EXCLUDED.profession,
+      maritalstatus = EXCLUDED.maritalstatus
+  `;
+}
+
+async function upsertPendingEmployee(input: {
+  registrationId: string;
+  body: RegistrationBody;
+}) {
+  const { registrationId, body } = input;
+
+  await sql`
+    INSERT INTO pending_employees (
+      registration_id,
+      email,
+      firstname,
+      surname,
+      department,
+      position,
+      status,
+      source,
+      submission_date,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      ${registrationId},
+      ${body.email},
+      ${body.firstname},
+      ${body.surname},
+      ${null},
+      ${null},
+      'pending_approval',
+      'onboarding',
+      NOW(),
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (registration_id) DO UPDATE SET
+      email = EXCLUDED.email,
+      firstname = EXCLUDED.firstname,
+      surname = EXCLUDED.surname,
+      department = COALESCE(EXCLUDED.department, pending_employees.department),
+      position = COALESCE(EXCLUDED.position, pending_employees.position),
+      status = 'pending_approval',
+      source = EXCLUDED.source,
+      updated_at = NOW()
+  `;
+}
+
+async function updateRegistrationStatus(
+  registrationId: string,
+  status: string,
+  currentStep: string
+) {
+  await sql`
+    UPDATE registrations
+    SET
+      status = ${status},
+      current_step = ${currentStep},
+      submitted_at = NOW(),
+      updated_at = NOW()
+    WHERE registration_id = ${registrationId}
+  `;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as RegistrationBody;
@@ -86,7 +205,7 @@ export async function POST(req: NextRequest) {
       residence_state,
       residence_lga,
       profession,
-      maritalstatus
+      maritalstatus,
     } = body;
 
     if (!firstname || !surname || !email) {
@@ -97,119 +216,68 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const incomingId = body.registration_id?.trim();
-    let employeeId = "";
-    let registrationId: number | null = null;
-    let isExisting = false;
+    const incomingId = resolveRegistrationIdInput(
+      req.headers.get("x-registration-id"),
+      body.registration_id
+    );
 
-    if (incomingId) {
-      const existing = await sql`
-        SELECT id FROM registrations WHERE registration_id = ${incomingId}
-      `;
-      if (existing.length > 0) {
-        employeeId = incomingId;
-        registrationId = existing[0]?.id;
-        isExisting = true;
-      } else {
-        employeeId = incomingId;
-        const inserted = await sql`
-          INSERT INTO registrations (registration_id, status)
-          VALUES (${employeeId}, 'pending')
-          RETURNING id
-        `;
-        registrationId = inserted[0]?.id;
-      }
-    } else {
-      employeeId = await generateRegistrationId();
+    const existingRegistration = incomingId
+      ? await findRegistrationByAnyFormat(incomingId)
+      : null;
+
+    const canonicalRegistrationId = existingRegistration
+      ? existingRegistration.registration_id
+      : incomingId || (await generateRegistrationId());
+
+    let registrationRow = existingRegistration;
+
+    if (!registrationRow) {
       const inserted = await sql`
-        INSERT INTO registrations (registration_id, status)
-        VALUES (${employeeId}, 'pending')
-        RETURNING id
+        INSERT INTO registrations (
+          registration_id,
+          status,
+          current_step,
+          submitted_at,
+          updated_at
+        )
+        VALUES (${canonicalRegistrationId}, 'pending_approval', 'submitted', NOW(), NOW())
+        RETURNING id, registration_id, status, current_step
       `;
-      registrationId = inserted[0]?.id;
+      registrationRow = inserted[0] as {
+        id: number;
+        registration_id: string;
+        status: string;
+        current_step: string;
+      };
+    } else {
+      await updateRegistrationStatus(
+        registrationRow.registration_id,
+        "pending_approval",
+        "submitted"
+      );
     }
 
-    if (!registrationId) {
+    if (!registrationRow?.id) {
       throw new Error("Failed to create or resolve registration");
     }
 
-    if (!isExisting) {
-      /* -------------------------
-         Insert into VerificationData table
-         Use UUID for 'id'
-      ------------------------- */
-      await sql`
-        INSERT INTO "VerificationData" (
-          id,
-          registration_id,
-          nin,
-          firstname,
-          surname,
-          middlename,
-          email,
-          gender,
-          telephoneno,
-          birthdate,
-          state_of_origin,
-          residence_address,
-          residence_state,
-          residence_lga,
-          profession,
-          maritalstatus
-        )
-        VALUES (
-          ${uuidv4()},
-          ${registrationId},
-          ${nin ?? null},
-          ${firstname},
-          ${surname},
-          ${middlename ?? null},
-          ${email},
-          ${gender ?? null},
-          ${telephoneno ?? null},
-          ${birthdate ?? null},
-          ${state_of_origin ?? null},
-          ${residence_address ?? null},
-          ${residence_state ?? null},
-          ${residence_lga ?? null},
-          ${profession ?? null},
-          ${maritalstatus ?? null}
-        )
-      `;
+    await upsertVerificationData({
+      registrationId: registrationRow.id,
+      body,
+    });
 
-      /* -------------------------
-         Insert into pending_employees table
-      ------------------------- */
-      await sql`
-        INSERT INTO pending_employees (
-          registration_id,
-          email,
-          firstname,
-          surname,
-          status
-        )
-        VALUES (
-          ${employeeId},
-          ${email},
-          ${firstname},
-          ${surname},
-          'pending'
-        )
-      `;
-    }
+    await upsertPendingEmployee({
+      registrationId: registrationRow.registration_id,
+      body,
+    });
 
-
-    /* -------------------------
-       Send Email
-       Always prompt user to upload documents
-    ------------------------- */
     const message = `Dear ${firstname},
 
 Your employee registration has been received successfully.
 
 Your Employee Registration ID is:
 
-${employeeId}
+${registrationRow.registration_id}
 
 Please keep this ID safe as it will be used to track your registration.
 
@@ -227,51 +295,56 @@ Please login to the portal and upload the required documents to complete your re
         subject: "Employee Registration Successful",
         text: message,
       });
-      console.log(`Registration email sent successfully to ${email}`);
       emailSent = true;
     } catch (emailError) {
       console.error("Failed to send registration email:", emailError);
-      // Continue with registration even if email fails
     }
 
-    /* -------------------------
-       Check if documents have been uploaded
-    ------------------------- */
     const documentsUploaded = await sql`
-      SELECT 1 FROM document_uploads WHERE registration_id = ${employeeId}
+      SELECT 1
+      FROM document_uploads
+      WHERE registration_id = ${registrationRow.registration_id}
+      LIMIT 1
     `;
 
-    /* -------------------------
-       Check if personal info exists
-    ------------------------- */
     const personalInfo = await sql`
-      SELECT 1 FROM personal_info WHERE registration_id = ${employeeId}
+      SELECT 1
+      FROM personal_info
+      WHERE registration_id = ${registrationRow.registration_id}
+      LIMIT 1
     `;
 
-    /* -------------------------
-       Check if employment info exists
-    ------------------------- */
     const employmentInfo = await sql`
-      SELECT 1 FROM employee_info WHERE registration_id = ${employeeId}
+      SELECT 1
+      FROM employment_info
+      WHERE registration_id = ${registrationRow.registration_id}
+      LIMIT 1
     `;
 
     return withCors(req, {
       success: true,
       message: "Registration successful",
-      employee_id: employeeId,
+      registration_id: registrationRow.registration_id,
+      employee_id: registrationRow.registration_id,
+      pending_created: true,
       documents_uploaded: documentsUploaded.length > 0,
       personal_information_saved: personalInfo.length > 0,
       employment_information_saved: employmentInfo.length > 0,
       email_sent: emailSent,
+      status: "pending_approval",
+      current_step: "submitted",
     });
-
   } catch (error) {
     console.error("Registration error:", error);
 
-    return withCors(req, {
-      success: false,
-      message: "Failed to process registration",
-      error: error instanceof Error ? error.message : String(error),
-    }, 500);
+    return withCors(
+      req,
+      {
+        success: false,
+        message: "Failed to process registration",
+        error: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
   }
 }

@@ -2,6 +2,10 @@ import { NextRequest } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "../../../../../../lib/cors";
 import FormData from "form-data";
+import {
+  buildRegistrationIdVariants,
+  resolveRegistrationIdInput,
+} from "../../../../../../lib/registration-id";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -21,23 +25,32 @@ export async function OPTIONS(req: NextRequest) {
 ------------------------- */
 export async function POST(req: NextRequest) {
   try {
-    const registration_id = req.headers.get("x-registration-id");
+    const formData = await req.formData();
+    const registration_id = resolveRegistrationIdInput(
+      req.headers.get("x-registration-id"),
+      formData.get("registration_id")?.toString() ?? null
+    );
+
     if (!registration_id) {
       return withCors(req, { success: false, message: "Missing registration ID in headers" }, 400);
     }
 
     // Check registration exists
-    const existing = await sql`
-      SELECT registration_id
-      FROM registrations
-      WHERE registration_id = ${registration_id}
-    `;
+    let existing: Array<{ registration_id: string }> = [];
+    for (const candidate of buildRegistrationIdVariants(registration_id)) {
+      existing = (await sql`
+        SELECT registration_id
+        FROM registrations
+        WHERE registration_id = ${candidate}
+        LIMIT 1
+      `) as Array<{ registration_id: string }>;
+      if (existing.length > 0) break;
+    }
     if (existing.length === 0) {
       return withCors(req, { success: false, message: "Invalid registration ID" }, 404);
     }
 
-    // Parse multipart form (Node FormData-compatible)
-    const formData = await req.formData();
+    const resolvedRegistrationId = existing[0]!.registration_id as string;
 
     const uploadFile = async (fieldName: string, required = false) => {
       const file = formData.get(fieldName) as File | null;
@@ -89,31 +102,45 @@ export async function POST(req: NextRequest) {
 
     // Insert uploaded URLs into database
     await sql`
-      INSERT INTO employee_documents (
+      INSERT INTO document_uploads (
         registration_id,
-        appointment_letter,
-        educational_certificates,
-        promotion_letter,
-        other_documents,
-        profile_image,
-        signature
+        appointment_letter_path,
+        educational_certificates_path,
+        promotion_letter_path,
+        other_documents_path,
+        profile_image_path,
+        signature_path,
+        status,
+        upload_date
       )
       VALUES (
-        ${registration_id},
+        ${resolvedRegistrationId},
         ${appointmentLetter},
         ${educationalCertificates},
         ${promotionLetter ?? null},
         ${otherDocuments ?? null},
         ${profileImage},
-        ${signature}
+        ${signature},
+        'pending',
+        NOW()
       )
+      ON CONFLICT (registration_id) DO UPDATE SET
+        appointment_letter_path = EXCLUDED.appointment_letter_path,
+        educational_certificates_path = EXCLUDED.educational_certificates_path,
+        promotion_letter_path = EXCLUDED.promotion_letter_path,
+        other_documents_path = EXCLUDED.other_documents_path,
+        profile_image_path = EXCLUDED.profile_image_path,
+        signature_path = EXCLUDED.signature_path,
+        status = COALESCE(EXCLUDED.status, document_uploads.status),
+        upload_date = NOW()
     `;
 
     // Update registration step
     await sql`
       UPDATE registrations
-      SET current_step = 'completed'
-      WHERE registration_id = ${registration_id}
+      SET current_step = 'completed',
+          updated_at = NOW()
+      WHERE registration_id = ${resolvedRegistrationId}
     `;
 
     return withCors(req, {
