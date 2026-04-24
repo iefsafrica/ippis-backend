@@ -37,6 +37,7 @@ export async function registerStep<TBody extends Record<string, unknown>>(
     method,
     headers: {
       "Content-Type": "application/json",
+      "x-registration-id": registrationId,
       ...headers,
     },
     body: JSON.stringify(payload),
