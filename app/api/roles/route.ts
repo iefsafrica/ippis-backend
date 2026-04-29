@@ -23,8 +23,28 @@ export async function POST(req: NextRequest) {
         return withCors(req, { success: false, error: "user_id and role_id are required" }, 400);
       }
 
-      // Check if user exists in the employees (registrations) table
-      const empCheck = await db`SELECT registration_id FROM registrations WHERE registration_id = ${user_id}`;
+      // Check if role exists
+      const roleCheck = await db`SELECT id FROM roles WHERE id = ${role_id}`;
+      if (roleCheck.length === 0) {
+        return withCors(req, { success: false, error: "Role ID does not exist" }, 404);
+      }
+
+      // Check if user exists in employees or registrations table
+      let empCheck;
+      try {
+        empCheck = await db`SELECT registration_id FROM employees WHERE registration_id = ${user_id}`;
+      } catch (e) {
+        empCheck = [];
+      }
+      
+      if (empCheck.length === 0) {
+        try {
+          empCheck = await db`SELECT registration_id FROM registrations WHERE registration_id = ${user_id}`;
+        } catch (e) {
+          empCheck = [];
+        }
+      }
+
       if (empCheck.length === 0) {
         return withCors(req, { success: false, error: "User ID does not exist in employees table" }, 404);
       }
@@ -42,8 +62,22 @@ export async function POST(req: NextRequest) {
         return withCors(req, { success: false, error: "user_id and role_id are required" }, 400);
       }
 
-      // Check if user exists in the employees (registrations) table
-      const empCheck = await db`SELECT registration_id FROM registrations WHERE registration_id = ${user_id}`;
+      // Check if user exists in employees or registrations table
+      let empCheck;
+      try {
+        empCheck = await db`SELECT registration_id FROM employees WHERE registration_id = ${user_id}`;
+      } catch (e) {
+        empCheck = [];
+      }
+      
+      if (empCheck.length === 0) {
+        try {
+          empCheck = await db`SELECT registration_id FROM registrations WHERE registration_id = ${user_id}`;
+        } catch (e) {
+          empCheck = [];
+        }
+      }
+
       if (empCheck.length === 0) {
         return withCors(req, { success: false, error: "User ID does not exist in employees table" }, 404);
       }
