@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
     `;
 
     const totalRes = await db`SELECT COUNT(*) FROM admin_users`;
-    const total = Number(totalRes[0].count);
+    const total = Number(totalRes?.[0]?.count ?? 0);
 
     return withCors(req, { 
       success: true, 
