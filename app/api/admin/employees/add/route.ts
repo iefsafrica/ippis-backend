@@ -128,10 +128,16 @@ export async function POST(req: NextRequest) {
       return withCors(req, { success: false, error: "The 'pending_employees' table does not exist." }, 404);
     }
 
-    // Check if email already exists
-    const emailExists = await sql`SELECT 1 FROM pending_employees WHERE email = ${email} LIMIT 1`;
-    if (emailExists.length > 0) {
-      return withCors(req, { success: false, error: "This email is already registered." }, 400);
+    // Check if email already exists in pending_employees
+    const pendingEmailExists = await sql`SELECT 1 FROM pending_employees WHERE email = ${email} LIMIT 1`;
+    if (pendingEmailExists.length > 0) {
+      return withCors(req, { success: false, error: "This email is already registered as a pending employee." }, 400);
+    }
+
+    // Check if email already exists in active employees table
+    const activeEmailExists = await sql`SELECT 1 FROM employees WHERE email = ${email} LIMIT 1`;
+    if (activeEmailExists.length > 0) {
+      return withCors(req, { success: false, error: "This email is already registered to an active employee." }, 400);
     }
 
     // Check if NIN already exists
