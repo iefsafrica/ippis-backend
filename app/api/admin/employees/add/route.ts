@@ -101,6 +101,28 @@ export async function POST(req: NextRequest) {
     const next_of_kin_phone_number = (body.next_of_kin_phone_number || body.nextOfKinPhoneNumber)?.trim() || null;
     const next_of_kin_address = (body.next_of_kin_address || body.nextOfKinAddress)?.trim() || null;
 
+    // --- Employment Info Fields ---
+    const grade_level = (body.grade_level || body.gl)?.trim() || null;
+    const step = (body.step || body.steps)?.trim() || null;
+    const employment_id_no = body.employment_id_no?.trim() || null;
+    const service_no = body.service_no?.trim() || null;
+    const file_no = body.file_no?.trim() || null;
+    const rank_position = body.rank_position?.trim() || null;
+    const organization = body.organization?.trim() || null;
+    const employment_type = body.employment_type?.trim() || null;
+    const probation_period = body.probation_period?.trim() || null;
+    const work_location = body.work_location?.trim() || null;
+    const date_of_first_appointment = body.date_of_first_appointment?.trim() || null;
+    const salary_structure = body.salary_structure?.trim() || null;
+    const cadre = body.cadre?.trim() || null;
+    const bank_name = (body.bank_name || body.name_of_bank)?.trim() || null;
+    const account_number = (body.account_number || body.nuban_account_number)?.trim() || null;
+    const pfa_name = body.pfa_name?.trim() || null;
+    const rsa_pin = (body.rsa_pin || body.rsapin)?.trim() || null;
+
+    // --- Metadata ---
+    const metadata = body.metadata || body.meta_data || null;
+
     // Ensure pending_employees table exists (basic check)
     if (!(await tableExists("pending_employees"))) {
       return withCors(req, { success: false, error: "The 'pending_employees' table does not exist." }, 404);
@@ -167,12 +189,28 @@ export async function POST(req: NextRequest) {
       )
     `;
 
-    // 4. Insert into pending_employees
+    // 4. Insert into employment_info
+    if (grade_level || step || employment_id_no || organization || bank_name || pfa_name) {
+      await sql`
+        INSERT INTO employment_info (
+          registration_id, employment_id_no, service_no, file_no, rank_position, department,
+          organization, employment_type, probation_period, work_location, date_of_first_appointment,
+          gl, step, salary_structure, cadre, name_of_bank, account_number, pfa_name, rsapin
+        )
+        VALUES (
+          ${registrationId}, ${employment_id_no}, ${service_no}, ${file_no}, ${rank_position}, ${department},
+          ${organization}, ${employment_type}, ${probation_period}, ${work_location}, ${date_of_first_appointment},
+          ${grade_level}, ${step}, ${salary_structure}, ${cadre}, ${bank_name}, ${account_number}, ${pfa_name}, ${rsa_pin}
+        )
+      `;
+    }
+
+    // 5. Insert into pending_employees
     const inserted = await sql`
       INSERT INTO pending_employees
-        (registration_id, firstname, surname, email, department, position, source, submission_date, created_at, updated_at)
+        (registration_id, firstname, surname, email, department, position, source, metadata, submission_date, created_at, updated_at)
       VALUES
-        (${registrationId}, ${firstname}, ${surname}, ${email}, ${department || null}, ${position || null}, 'form', NOW(), NOW(), NOW())
+        (${registrationId}, ${firstname}, ${surname}, ${email}, ${department || null}, ${position || null}, 'form', ${metadata ? JSON.stringify(metadata) : null}, NOW(), NOW(), NOW())
       RETURNING *
     `;
     const employee = inserted[0];
