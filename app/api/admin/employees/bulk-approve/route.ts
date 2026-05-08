@@ -15,6 +15,7 @@ type PendingEmployee = {
   position: string
   department?: string
   status?: string
+  metadata?: Record<string, any>
 }
 
 export async function OPTIONS(req: NextRequest) {
@@ -76,21 +77,25 @@ export async function POST(req: NextRequest) {
         await sql`
           INSERT INTO employees (
             id,
+            registration_id,
             name,
             email,
             position,
             department,
             status,
+            metadata,
             created_at,
             updated_at
           )
           VALUES (
             ${registrationId},
+            ${employee.registration_id},
             ${name},
             ${email},
             ${position},
             ${department},
             'active',
+            ${employee.metadata ? JSON.stringify(employee.metadata) : "{}"},
             NOW(),
             NOW()
           )

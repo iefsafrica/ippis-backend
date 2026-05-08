@@ -93,6 +93,7 @@ export async function POST(req: NextRequest) {
         position,
         department,
         status,
+        metadata,
         created_at,
         updated_at
       )
@@ -104,6 +105,7 @@ export async function POST(req: NextRequest) {
         ${position},
         ${department},
         'active',
+        ${employee.metadata ? JSON.stringify(employee.metadata) : "{}"},
         NOW(),
         NOW()
       )

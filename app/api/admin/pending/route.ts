@@ -1,4 +1,4 @@
-﻿import { neon } from "@neondatabase/serverless"
+import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "../../../../lib/cors"
 import { NextRequest } from "next/server"
 
