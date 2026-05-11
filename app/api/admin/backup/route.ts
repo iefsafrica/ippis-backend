@@ -136,7 +136,8 @@ export async function POST(req: NextRequest) {
 
     for (const table of tablesToBackup) {
       try {
-        const tableRows = await sql`SELECT * FROM ${sql(table)} LIMIT 5000`
+        // @ts-ignore - dynamic table names aren't supported by tagged templates
+        const tableRows = await (sql as any)([`SELECT * FROM ${table} LIMIT 5000`])
         rowCounts[table] = tableRows.length
         backupData[table] = tableRows
         totalRows += tableRows.length
