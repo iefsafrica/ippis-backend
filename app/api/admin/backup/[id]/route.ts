@@ -77,14 +77,15 @@ export async function DELETE(req: NextRequest) {
       RETURNING id, backup_name
     `
 
-    if (rows.length === 0) {
+    const deletedBackup = rows[0] as any
+    if (!deletedBackup) {
       return withCors(req, { success: false, error: `Backup with id '${id}' not found.` }, 404)
     }
 
     return withCors(req, {
       success: true,
-      message: `Backup '${rows[0].backup_name}' deleted successfully.`,
-      deletedId: rows[0].id,
+      message: `Backup '${deletedBackup.backup_name}' deleted successfully.`,
+      deletedId: deletedBackup.id,
     })
   } catch (error) {
     console.error("Error deleting backup:", error)
