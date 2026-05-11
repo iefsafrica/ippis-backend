@@ -112,13 +112,18 @@ export async function POST(req: NextRequest) {
       : `backup_${backupType}_${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`
 
     // ── Create the backup record (status = in_progress)
-    const [record] = await sql`
+    const rows = await sql`
       INSERT INTO database_backups
         (backup_name, backup_type, location, compression, encryption, status, created_by)
       VALUES
         (${name}, ${backupType}, ${location}, ${compression}, ${encryption}, 'in_progress', ${String(createdBy)})
       RETURNING id, backup_name, created_at
     `
+
+    const record = rows[0] as any
+    if (!record) {
+      throw new Error("Failed to create backup record in database")
+    }
 
     const backupId = record.id
 
