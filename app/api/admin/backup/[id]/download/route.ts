@@ -23,10 +23,10 @@ export async function OPTIONS() {
 // Streams the backup as a downloadable JSON file
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params
+    const { id } = await params
 
     const rows = await sql`
       SELECT id, backup_name, backup_type, location, compression, encryption,

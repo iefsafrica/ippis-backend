@@ -21,10 +21,10 @@ export async function OPTIONS(req: NextRequest) {
 // Body: { tables?: string[], restoredBy?: string, confirmRestore: true }
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params
+    const { id } = await params
     const body = await req.json() as any
     const { tables, restoredBy = "system", confirmRestore } = body
 

@@ -17,10 +17,10 @@ export async function OPTIONS(req: NextRequest) {
 // Returns a single backup record (without the full backup_data payload)
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params
+    const { id } = await params
 
     const rows = await sql`
       SELECT id, backup_name, backup_type, location, compression, encryption,
@@ -63,10 +63,10 @@ export async function GET(
 // Permanently deletes a backup record
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params
+    const { id } = await params
 
     const rows = await sql`
       DELETE FROM database_backups
