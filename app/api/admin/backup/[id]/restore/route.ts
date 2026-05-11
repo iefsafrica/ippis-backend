@@ -52,11 +52,10 @@ export async function POST(req: NextRequest) {
       LIMIT 1
     `
 
-    if (rows.length === 0) {
+    const backup = rows[0]
+    if (!backup) {
       return withCors(req, { success: false, error: `Backup with id '${id}' not found.` }, 404)
     }
-
-    const backup = rows[0]
 
     if (backup.status !== "completed") {
       return withCors(req, {

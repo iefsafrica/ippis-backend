@@ -57,7 +57,8 @@ export async function GET(req: NextRequest) {
           LIMIT ${limit} OFFSET ${offset}
         `
 
-    const [{ count }] = await sql`SELECT COUNT(*)::int AS count FROM database_backups`
+    const result = await sql`SELECT COUNT(*)::int AS count FROM database_backups`
+    const count = result[0]?.count ?? 0
 
     return withCors(req, {
       success: true,
