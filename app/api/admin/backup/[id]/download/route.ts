@@ -7,6 +7,14 @@ export const dynamic = "force-dynamic"
 
 const sql = neon(process.env.DATABASE_URL!)
 
+// Helper: extract the backup ID from the URL path
+// Path: /api/admin/backup/[id]/download
+function getBackupId(req: NextRequest): string {
+  const segments = req.nextUrl.pathname.split("/").filter(Boolean)
+  const backupIdx = segments.findIndex((s) => s === "backup")
+  return segments[backupIdx + 1] ?? ""
+}
+
 // ─── OPTIONS ───────────────────────────────────────────────────────────────────
 export async function OPTIONS() {
   return new NextResponse(null, {
@@ -21,12 +29,13 @@ export async function OPTIONS() {
 
 // ─── GET /api/admin/backup/[id]/download ──────────────────────────────────────
 // Streams the backup as a downloadable JSON file
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(req: NextRequest) {
   try {
-    const { id } = await params
+    const id = getBackupId(req)
+
+    if (!id) {
+      return NextResponse.json({ success: false, error: "Missing backup ID." }, { status: 400 })
+    }
 
     const rows = await sql`
       SELECT id, backup_name, backup_type, location, compression, encryption,
@@ -50,7 +59,6 @@ export async function GET(
       )
     }
 
-    // Build the download payload
     const downloadPayload = {
       meta: {
         backupId:       backup.id,

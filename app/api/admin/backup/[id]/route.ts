@@ -1,5 +1,6 @@
 // app/api/admin/backup/[id]/route.ts
-// GET → fetch a single backup record by ID
+// GET    → fetch a single backup record by ID
+// DELETE → permanently delete a backup record
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "../../../../../lib/cors"
 import { NextRequest } from "next/server"
@@ -8,19 +9,27 @@ export const dynamic = "force-dynamic"
 
 const sql = neon(process.env.DATABASE_URL!)
 
+// Helper: extract the backup ID from the URL path
+// Path: /api/admin/backup/[id]
+function getBackupId(req: NextRequest): string {
+  const segments = req.nextUrl.pathname.split("/").filter(Boolean)
+  const backupIdx = segments.findIndex((s) => s === "backup")
+  return segments[backupIdx + 1] ?? ""
+}
+
 // ─── OPTIONS ───────────────────────────────────────────────────────────────────
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req)
 }
 
 // ─── GET /api/admin/backup/[id] ───────────────────────────────────────────────
-// Returns a single backup record (without the full backup_data payload)
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(req: NextRequest) {
   try {
-    const { id } = await params
+    const id = getBackupId(req)
+
+    if (!id) {
+      return withCors(req, { success: false, error: "Missing backup ID." }, 400)
+    }
 
     const rows = await sql`
       SELECT id, backup_name, backup_type, location, compression, encryption,
@@ -32,10 +41,7 @@ export async function GET(
     `
 
     if (rows.length === 0) {
-      return withCors(req, {
-        success: false,
-        error: `Backup with id '${id}' not found.`,
-      }, 404)
+      return withCors(req, { success: false, error: `Backup with id '${id}' not found.` }, 404)
     }
 
     const backup = rows[0]
@@ -44,9 +50,7 @@ export async function GET(
       success: true,
       data: {
         ...backup,
-        sizeMB: backup.size_bytes
-          ? (backup.size_bytes / 1024 / 1024).toFixed(2)
-          : null,
+        sizeMB: backup.size_bytes ? (backup.size_bytes / 1024 / 1024).toFixed(2) : null,
       },
     })
   } catch (error) {
@@ -60,13 +64,13 @@ export async function GET(
 }
 
 // ─── DELETE /api/admin/backup/[id] ────────────────────────────────────────────
-// Permanently deletes a backup record
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(req: NextRequest) {
   try {
-    const { id } = await params
+    const id = getBackupId(req)
+
+    if (!id) {
+      return withCors(req, { success: false, error: "Missing backup ID." }, 400)
+    }
 
     const rows = await sql`
       DELETE FROM database_backups
@@ -75,10 +79,7 @@ export async function DELETE(
     `
 
     if (rows.length === 0) {
-      return withCors(req, {
-        success: false,
-        error: `Backup with id '${id}' not found.`,
-      }, 404)
+      return withCors(req, { success: false, error: `Backup with id '${id}' not found.` }, 404)
     }
 
     return withCors(req, {
