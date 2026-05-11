@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
 // Body: { systemName?, systemLogo?, systemLanguage?, systemTimezone?, updatedBy? }
 export async function PUT(req: NextRequest) {
   try {
-    const body = await req.json()
+    const body = await req.json() as any
     const { systemName, systemLogo, systemLanguage, systemTimezone, updatedBy } = body
 
     const updates: { key: string; value: string }[] = []

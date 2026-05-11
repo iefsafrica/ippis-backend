@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
 // Body: { emailServer?, emailPort?, emailUsername?, emailPassword?, emailFrom?, emailReplyTo?, emailTemplate?, updatedBy? }
 export async function PUT(req: NextRequest) {
   try {
-    const body = await req.json()
+    const body = await req.json() as any
     const {
       emailServer, emailPort, emailUsername, emailPassword,
       emailFrom, emailReplyTo, emailTemplate, updatedBy,

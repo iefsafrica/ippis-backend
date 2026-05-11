@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
 //   debugMode, maintenanceMode, updatedBy
 export async function PUT(req: NextRequest) {
   try {
-    const body = await req.json()
+    const body = await req.json() as any
     const {
       documentVerificationMode, systemDateFormat, systemTimeFormat,
       systemCurrency, systemDecimalSeparator, systemThousandSeparator,

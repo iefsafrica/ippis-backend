@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
 // Body: { emailNotifications?: boolean, systemNotifications?: boolean, notificationFrequency?: string, updatedBy?: string }
 export async function PUT(req: NextRequest) {
   try {
-    const body = await req.json()
+    const body = await req.json() as any
     const { emailNotifications, systemNotifications, notificationFrequency, updatedBy } = body
 
     const updates: { key: string; value: string }[] = []
