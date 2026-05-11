@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
       LIMIT 1
     `
 
-    const backup = rows[0]
+    const backup = rows[0] as any
     if (!backup) {
       return NextResponse.json({ success: false, error: `Backup '${id}' not found.` }, { status: 404 })
     }

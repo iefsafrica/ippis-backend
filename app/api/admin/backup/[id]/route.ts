@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       LIMIT 1
     `
 
-    const backup = rows[0]
+    const backup = rows[0] as any
     if (!backup) {
       return withCors(req, { success: false, error: `Backup with id '${id}' not found.` }, 404)
     }
