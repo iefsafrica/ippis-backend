@@ -46,8 +46,9 @@ export async function GET(req: NextRequest) {
     // Group by category
     const grouped: Record<string, Record<string, any>> = {}
     for (const row of rows) {
-      if (!grouped[row.category]) grouped[row.category] = {}
-      grouped[row.category][row.key] = {
+      const cat = row.category as string
+      if (!grouped[cat]) grouped[cat] = {}
+      grouped[cat]![row.key] = {
         value: row.value,
         dataType: row.data_type,
         updatedAt: row.updated_at,
