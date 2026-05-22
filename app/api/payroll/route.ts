@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
 
       // Get basic salary
       const salaryRecord = await sql`SELECT basic_salary FROM employee_payments WHERE employee_id = ${body.employee_id} ORDER BY created_at DESC LIMIT 1`
-      const baseSalary = salaryRecord.length ? parseFloat(salaryRecord[0].basic_salary) : 50000 // Default if not found
+      const baseSalary = salaryRecord[0] ? parseFloat((salaryRecord[0] as any).basic_salary) : 50000 // Default if not found
 
       // Calculate ratio
       // If no attendance records, assume 100% (or 0%? Let's assume 100% for now but deduct for explicit absence)
