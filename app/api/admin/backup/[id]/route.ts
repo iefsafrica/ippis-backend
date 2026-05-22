@@ -2,7 +2,7 @@
 // GET    → fetch a single backup record by ID
 // DELETE → permanently delete a backup record
 import { neon } from "@neondatabase/serverless"
-import { withCors, handleOptions } from "../../../../../lib/cors"
+import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 
 export const dynamic = "force-dynamic"

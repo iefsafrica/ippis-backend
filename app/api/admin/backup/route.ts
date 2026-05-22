@@ -1,17 +1,17 @@
 // app/api/admin/backup/route.ts
 // Administrative Database Backup & History API
 import { neon } from "@neondatabase/serverless"
-import { withCors, handleOptions } from "../../../lib/cors"
+import { withCors, handleOptions } from "@/lib/cors"
 import { NextRequest } from "next/server"
 
 export const dynamic = "force-dynamic"
 
 const sql = neon(process.env.DATABASE_URL!)
 
-const VALID_BACKUP_TYPES   = ["full", "partial"]
-const VALID_LOCATIONS      = ["local", "cloud"]
-const VALID_COMPRESSIONS   = ["none", "low", "medium", "high"]
-const VALID_ENCRYPTIONS    = ["none", "AES-128", "AES-256"]
+const VALID_BACKUP_TYPES = ["full", "partial"]
+const VALID_LOCATIONS = ["local", "cloud"]
+const VALID_COMPRESSIONS = ["none", "low", "medium", "high"]
+const VALID_ENCRYPTIONS = ["none", "AES-128", "AES-256"]
 
 // Tables that are included in a full backup
 const FULL_BACKUP_TABLES = [
@@ -33,7 +33,7 @@ export async function OPTIONS(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
-    const limit  = parseInt(searchParams.get("limit")  || "20")
+    const limit = parseInt(searchParams.get("limit") || "20")
     const offset = parseInt(searchParams.get("offset") || "0")
 
     const rows = await sql`
@@ -70,10 +70,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as any
-    const { 
-      backupName, 
-      backupType = "full", 
-      location = "local", 
+    const {
+      backupName,
+      backupType = "full",
+      location = "local",
       compression = "none",
       encryption = "none",
       createdBy = "System Admin"
@@ -106,8 +106,8 @@ export async function POST(req: NextRequest) {
 
     // ── Perform the backup: query each table and capture data + row counts
     const rowCounts: Record<string, number> = {}
-    const backupData: Record<string, any[]>  = {}
-    let   totalRows = 0
+    const backupData: Record<string, any[]> = {}
+    let totalRows = 0
 
     const tablesToBackup = backupType === "full" ? FULL_BACKUP_TABLES : ["admin_settings"]
 
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     console.error("Backup process failed:", error)
-    
+
     // Attempt to log failure in DB if we have a name
     try {
       const body = await req.clone().json() as any

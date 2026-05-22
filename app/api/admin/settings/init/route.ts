@@ -2,7 +2,7 @@
 // Seeds the admin_settings table with default values if they don't already exist.
 // Call this once on first deploy or when the settings table is empty.
 import { neon } from "@neondatabase/serverless"
-import { withCors, handleOptions } from "../../../../../lib/cors"
+import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 
 export const dynamic = "force-dynamic"

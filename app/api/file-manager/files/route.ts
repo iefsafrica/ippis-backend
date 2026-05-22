@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { withCors, handleOptions } from "../../../../lib/cors";
+import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { uploadToBlob, deleteFromBlob } from "../../../../lib/blob-storage";

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { neon } from "@neondatabase/serverless";
-import { withCors, handleOptions } from "../../../../lib/cors";
+import { withCors, handleOptions } from "@/lib/cors";
 import { generateRegistrationId } from "../../../../lib/register-utils";
 
 export const dynamic = "force-dynamic";

@@ -1,5 +1,5 @@
-﻿import { neon } from "@neondatabase/serverless";
-import { withCors, handleOptions } from "../../../../../lib/cors";
+import { neon } from "@neondatabase/serverless";
+import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
 
     const registrationId = formData.get("registration_id")!.toString();
 
-    // ✅ Check if registration_id exists in registrations
+    // ? Check if registration_id exists in registrations
     const registrationExists = await sql`
       SELECT 1 FROM registrations WHERE registration_id = ${registrationId};
     `;

@@ -1,14 +1,14 @@
-﻿import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { format } from "date-fns";
-import { withCors, handleOptions } from "../../../../../lib/cors"; 
+import { withCors, handleOptions } from "@/lib/cors"; 
 
-// ✅ Handle CORS preflight requests
+// ? Handle CORS preflight requests
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
 }
 
-// ✅ Main GET request handler
+// ? Main GET request handler
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -19,12 +19,12 @@ export async function GET(req: NextRequest) {
 
     let data: any[] = [];
 
-    // ✅ Check if tables exist before querying
+    // ? Check if tables exist before querying
     const tablesExist = await checkTablesExist(sql);
 
     if (tablesExist) {
       if (type === "recent") {
-        // ✅ Recently registered employees
+        // ? Recently registered employees
         const query = `
           SELECT 
             id, 
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
           date: format(new Date(row.date), "MMM d, yyyy"),
         }));
       } else if (type === "pending") {
-        // ✅ Pending employees
+        // ? Pending employees
         const query = `
           SELECT 
             id, 
@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ✅ Helper: Check if required tables exist
+// ? Helper: Check if required tables exist
 async function checkTablesExist(sql: any) {
   try {
     const query = `

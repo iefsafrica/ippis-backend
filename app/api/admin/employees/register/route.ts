@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { neon } from "@neondatabase/serverless";
-import { withCors, handleOptions } from "../../../../../lib/cors";
+import { withCors, handleOptions } from "@/lib/cors";
 import nodemailer from "nodemailer";
 import { v4 as uuidv4 } from "uuid";
 import {

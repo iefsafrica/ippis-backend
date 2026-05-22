@@ -1,7 +1,7 @@
 // app/api/admin/backup/[id]/restore/route.ts
 // POST → restore the system from a specific backup
 import { neon } from "@neondatabase/serverless"
-import { withCors, handleOptions } from "../../../../../../lib/cors"
+import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 
 export const dynamic = "force-dynamic"

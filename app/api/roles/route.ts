@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { NextRequest } from "next/server";
-import { withCors, handleOptions } from "../../../lib/cors";
+import { withCors, handleOptions } from "@/lib/cors";
 
 export const dynamic = "force-dynamic";
 

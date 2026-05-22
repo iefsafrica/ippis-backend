@@ -1,6 +1,6 @@
-﻿// app/api/admin/employees/documents/route.ts
+// app/api/admin/employees/documents/route.ts
 import { neon } from "@neondatabase/serverless"
-import { withCors, handleOptions } from "../../../../lib/cors"
+import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 
 export const dynamic = "force-dynamic"

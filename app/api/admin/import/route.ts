@@ -1,5 +1,5 @@
-﻿import { neon } from "@neondatabase/serverless";
-import { withCors, handleOptions } from "../../../../lib/cors";
+import { neon } from "@neondatabase/serverless";
+import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import Papa from "papaparse";
 

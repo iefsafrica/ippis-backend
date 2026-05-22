@@ -1,5 +1,5 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
-import { withCors, handleOptions } from "../../../../../lib/cors";
+import { NextRequest, NextResponse } from 'next/server';
+import { withCors, handleOptions } from "@/lib/cors";
 import { neon } from '@neondatabase/serverless';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto'; 
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1️⃣ Fetch user
+    // 1?? Fetch user
     const userResult = await sql`
       SELECT id, username, email, password_hash, role
       FROM admin_users
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2️⃣ Validate password
+    // 2?? Validate password
     const passwordValid = await bcrypt.compare(password, user.password_hash);
     if (!passwordValid) {
       return NextResponse.json(
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3️⃣ Validate role
+    // 3?? Validate role
     if (!isAllowedAdminRole(user.role)) {
       return NextResponse.json(
         { success: false, message: 'Access denied: Admin privileges required' },
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4️⃣ Generate OTP
+    // 4?? Generate OTP
     const otp = generateOTP();
     const otpHash = hashOTP(otp);
 
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
       )
     `;
 
-    // 5️⃣ Send OTP email
+    // 5?? Send OTP email
     await sendOTPEmail(user.email, otp);
 
     return NextResponse.json({

@@ -1,5 +1,5 @@
-﻿import { neon } from "@neondatabase/serverless"
-import { withCors, handleOptions } from "../../../../lib/cors"
+import { neon } from "@neondatabase/serverless"
+import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 
 export const dynamic = "force-dynamic"
@@ -60,7 +60,7 @@ export async function OPTIONS(req: NextRequest) {
 // GET: List all active employees
 export async function GET(req: NextRequest) {
   try {
-    console.log("📡 Fetching all active employees...")
+    console.log("?? Fetching all active employees...")
 
     const { searchParams } = new URL(req.url)
     const page = Number(searchParams.get("page") || "1")

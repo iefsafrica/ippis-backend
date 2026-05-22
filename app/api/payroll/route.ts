@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless"
-import { withCors, handleOptions } from "../../../lib/cors"
+import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 
 export const dynamic = "force-dynamic"
@@ -61,16 +61,41 @@ export async function OPTIONS(req: NextRequest) {
 // ---------------------------
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as PayrollPayload
+    const body = (await req.json()) as PayrollPayload & { month?: string, year?: string }
 
-    if (!body.employee_id || body.amount == null) {
-      return withCors(req, { success: false, error: "Missing required fields" }, 400)
+    if (!body.employee_id) {
+      return withCors(req, { success: false, error: "Missing required fields: employee_id" }, 400)
     }
 
     // Check if employee exists
-    const employee = await sql`SELECT id FROM employees WHERE id = ${body.employee_id}`
+    const employee = await sql`SELECT id, name FROM employees WHERE id = ${body.employee_id}`
     if (!employee.length) {
       return withCors(req, { success: false, error: "Employee not found" }, 404)
+    }
+
+    let finalAmount = body.amount
+
+    // If amount is not provided, calculate it based on attendance
+    if (finalAmount == null) {
+      // Get attendance for the month
+      const attendance = await sql`
+        SELECT status FROM attendance 
+        WHERE employee_code = ${body.employee_id} 
+        AND attendance_date LIKE ${`${body.year || new Date().getFullYear()}-${body.month || (new Date().getMonth() + 1).toString().padStart(2, "0")}%`}
+      `
+      
+      const presentDays = attendance.filter(a => a.status === "present" || a.status === "late").length
+      const absentDays = attendance.filter(a => a.status === "absent").length
+      const totalWorkingDays = 22 // Default working days in a month
+
+      // Get basic salary
+      const salaryRecord = await sql`SELECT basic_salary FROM employee_payments WHERE employee_id = ${body.employee_id} ORDER BY created_at DESC LIMIT 1`
+      const baseSalary = salaryRecord.length ? parseFloat(salaryRecord[0].basic_salary) : 50000 // Default if not found
+
+      // Calculate ratio
+      // If no attendance records, assume 100% (or 0%? Let's assume 100% for now but deduct for explicit absence)
+      finalAmount = baseSalary - (baseSalary / totalWorkingDays * absentDays)
+      if (finalAmount < 0) finalAmount = 0
     }
 
     // Auto-generate payment_id: PAY-001, PAY-002, etc.
@@ -94,16 +119,21 @@ export async function POST(req: NextRequest) {
       VALUES (
         ${newPaymentId},
         ${body.employee_id},
-        ${body.payment_date},
-        ${body.payment_type},
-        ${body.amount},
+        ${body.payment_date || new Date().toISOString().split("T")[0]},
+        ${body.payment_type || "salary"},
+        ${finalAmount},
         ${body.status || "pending"}
       )
       RETURNING *
     `
 
-    return withCors(req, { success: true, data: result?.[0] ?? null })
+    return withCors(req, { 
+      success: true, 
+      data: result?.[0] ?? null,
+      message: body.amount == null ? "Amount calculated based on attendance" : undefined 
+    })
   } catch (error: any) {
+    console.error("Payroll POST error:", error)
     return withCors(req, { success: false, error: error?.message || "POST failed" }, 500)
   }
 }

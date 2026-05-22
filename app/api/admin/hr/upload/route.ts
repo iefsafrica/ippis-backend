@@ -1,6 +1,6 @@
 import { put } from "@vercel/blob";
 import { NextRequest } from "next/server";
-import { withCors, handleOptions } from "../../../../../lib/cors";
+import { withCors, handleOptions } from "@/lib/cors";
 
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
