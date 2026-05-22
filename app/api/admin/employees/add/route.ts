@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 import {
   canonicalizeRegistrationId,
   normalizeRegistrationId,
-} from "../../../../../lib/registration-id";
+} from "@/lib/registration-id";
 import { v4 as uuidv4 } from "uuid";
 import nodemailer from "nodemailer";
 
@@ -30,7 +30,7 @@ async function tableExists(tableName: string) {
   }
 }
 
-import { generateRegistrationId } from "../../../../../lib/register-utils";
+import { generateRegistrationId } from "@/lib/register-utils";
 
 // Nodemailer transport
 const transporter = nodemailer.createTransport({

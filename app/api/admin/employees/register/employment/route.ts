@@ -4,7 +4,7 @@ import { withCors, handleOptions } from "@/lib/cors";
 import {
   buildRegistrationIdVariants,
   resolveRegistrationIdInput,
-} from "../../../../../../lib/registration-id";
+} from "@/lib/registration-id";
 
 const sql = neon(process.env.DATABASE_URL!);
 

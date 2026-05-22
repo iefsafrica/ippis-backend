@@ -5,7 +5,7 @@ import FormData from "form-data";
 import {
   buildRegistrationIdVariants,
   resolveRegistrationIdInput,
-} from "../../../../../../lib/registration-id";
+} from "@/lib/registration-id";
 
 const sql = neon(process.env.DATABASE_URL!);
 

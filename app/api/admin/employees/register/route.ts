@@ -6,8 +6,8 @@ import { v4 as uuidv4 } from "uuid";
 import {
   buildRegistrationIdVariants,
   resolveRegistrationIdInput,
-} from "../../../../../lib/registration-id";
-import { generateRegistrationId } from "../../../../../lib/register-utils";
+} from "@/lib/registration-id";
+import { generateRegistrationId } from "@/lib/register-utils";
 
 const sql = neon(process.env.DATABASE_URL!);
 
