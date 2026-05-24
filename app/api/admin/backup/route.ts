@@ -7,7 +7,6 @@ import { NextRequest } from "next/server"
 export const dynamic = "force-dynamic"
 
 const sql = neon(process.env.DATABASE_URL!)
-
 const VALID_BACKUP_TYPES = ["full", "partial"]
 const VALID_LOCATIONS = ["local", "cloud"]
 const VALID_COMPRESSIONS = ["none", "low", "medium", "high"]

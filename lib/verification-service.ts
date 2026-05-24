@@ -2,13 +2,14 @@ interface VerificationResult {
   verified: boolean;
   message: string;
   data: any | null;
+  statusCode?: number | undefined;
 }
 
 interface NetAppsNINResponse {
   status?: string;
   message?: string;
   data?: any;
-  error?: string;
+  error?: string | boolean;
   code?: number;
 }
 
@@ -20,7 +21,8 @@ const VERIFICATION_URL = process.env.NETAPPS_URL || "https://kyc-api.netapps.ng/
  */
 export async function verifyNIN(nin: string): Promise<VerificationResult> {
   // Step 1: Validate NIN format
-  const validationError = validateNIN(nin);
+  const normalizedNin = nin.trim();
+  const validationError = validateNIN(normalizedNin);
   if (validationError) return createErrorResult(validationError);
 
   // Step 2: Get and validate API key
@@ -38,31 +40,27 @@ export async function verifyNIN(nin: string): Promise<VerificationResult> {
         "Content-Type": "application/json",
         "x-secret-key": apiKey,
       },
-      body: JSON.stringify({ nin }),
+      body: JSON.stringify(buildNinVerificationPayload(VERIFICATION_URL, normalizedNin)),
       signal: controller.signal,
     });
 
     clearTimeout(timeout);
 
-    // Step 4: Handle HTTP errors
-    if (!response.ok) {
-      const text = await response.text();
-      console.error("NIN verification HTTP error:", response.status, text);
-      return createErrorResult(`API request failed (${response.status}): ${text}`);
+    const raw = await response.text();
+    const data = parseNetappsResponse(raw);
+
+    if (!data) {
+      console.error("Invalid JSON response from NetApps:", raw);
+      return createErrorResult("Invalid JSON response from verification API.", response.status);
     }
 
-    // Step 5: Safely parse response
-    let data: NetAppsNINResponse;
-try {
-  data = (await response.json()) as NetAppsNINResponse;
-} catch {
-  const raw = await response.text();
-  console.error("Invalid JSON response from NetApps:", raw);
-  return createErrorResult("Invalid JSON response from verification API.");
-}
-
-
-    console.log("NIN verification response:", data);
+    if (!response.ok) {
+      console.error("NIN verification HTTP error:", response.status, data);
+      return createErrorResult(
+        data.message || String(data.error || `API request failed (${response.status}).`),
+        response.status
+      );
+    }
 
     // Step 6: Process response
     return processAPIResponse(data);
@@ -84,14 +82,34 @@ function validateNIN(nin: string): string | null {
   return null;
 }
 
+function buildNinVerificationPayload(url: string, nin: string) {
+  if (url.includes("/whitelabel/verify")) {
+    return {
+      kycType: "nin",
+      nin,
+    };
+  }
+
+  return { nin };
+}
+
+function parseNetappsResponse(raw: string): NetAppsNINResponse | null {
+  try {
+    return JSON.parse(raw) as NetAppsNINResponse;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Interprets API response
  */
 function processAPIResponse(data: NetAppsNINResponse): VerificationResult {
   const status = data?.status?.toLowerCase();
   const hasValidData = data?.data && typeof data.data === "object";
+  const hasBooleanSuccess = data?.error === false && hasValidData;
 
-  if (status === "successful" && hasValidData) {
+  if ((status === "successful" || status === "success" || hasBooleanSuccess) && hasValidData) {
     return {
       verified: true,
       message: data.message || "NIN verified successfully.",
@@ -100,7 +118,7 @@ function processAPIResponse(data: NetAppsNINResponse): VerificationResult {
   }
 
   // Handle specific known messages from API
-  const message = data?.message || data?.error || "NIN verification failed.";
+  const message = data?.message || (data?.error && typeof data.error === "string" ? data.error : "") || "NIN verification failed.";
 
   return {
     verified: false,
@@ -112,8 +130,8 @@ function processAPIResponse(data: NetAppsNINResponse): VerificationResult {
 /**
  *  Creates standardized error result
  */
-function createErrorResult(message: string): VerificationResult {
-  return { verified: false, message, data: null };
+function createErrorResult(message: string, statusCode?: number): VerificationResult {
+  return { verified: false, message, data: null, statusCode };
 }
 
 /**
