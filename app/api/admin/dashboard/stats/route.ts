@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
     const pendingRow = await queryFirstRow<PendingEmployeesStatsRow>(`
       SELECT COUNT(*) AS pending_employees
       FROM pending_employees
-      WHERE status = 'pending_approval';
+      ;
     `);
     if (pendingRow) {
       stats.pendingEmployees = Number(pendingRow.pending_employees);
