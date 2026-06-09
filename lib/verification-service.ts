@@ -2,7 +2,7 @@ interface VerificationResult {
   verified: boolean;
   message: string;
   data: any | null;
-  statusCode?: number | undefined;
+  statusCode?: number;
 }
 
 interface NetAppsNINResponse {
@@ -11,132 +11,219 @@ interface NetAppsNINResponse {
   data?: any;
   error?: string | boolean;
   code?: number;
+
+  nin?: string | number;
+  firstname?: string;
+  surname?: string;
+  middlename?: string;
+  gender?: string;
+  birthdate?: string;
+  telephoneno?: string;
+  residenceAdressLine1?: string;
+  residenceTown?: string;
+  residenceLga?: string;
+  residenceState?: string;
+
+  [key: string]: any;
 }
 
 const NIN_REGEX = /^\d{11}$/;
-const VERIFICATION_URL = process.env.NETAPPS_URL || "https://kyc-api.netapps.ng/api/v1/kyc/nin";
+
+const VERIFICATION_URL =
+  process.env.NETAPPS_URL ||
+  "https://kyc-api.netapps.ng/api/v1/kyc/nin";
 
 /**
- *  Verifies NIN with NetApps KYC API
+ * MAIN FUNCTION
  */
-export async function verifyNIN(nin: string): Promise<VerificationResult> {
-  // Step 1: Validate NIN format
-  const normalizedNin = nin.trim();
-  const validationError = validateNIN(normalizedNin);
-  if (validationError) return createErrorResult(validationError);
+export async function verifyNIN(
+  nin: string
+): Promise<VerificationResult> {
+  const normalizedNin = nin?.trim();
 
-  // Step 2: Get and validate API key
+  const validationError = validateNIN(normalizedNin);
+  if (validationError) {
+    return createErrorResult(validationError);
+  }
+
   const apiKey = process.env.NETAPPS_SECRET_KEY?.trim();
-  if (!apiKey) return createErrorResult("Missing NETAPPS_SECRET_KEY in environment.");
+  if (!apiKey) {
+    return createErrorResult("Missing NETAPPS_SECRET_KEY in environment.");
+  }
 
   try {
-    // Step 3: Send verification request with timeout
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000); // 15 seconds timeout
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
     const response = await fetch(VERIFICATION_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-secret-key": apiKey,
+        Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify(buildNinVerificationPayload(VERIFICATION_URL, normalizedNin)),
+      body: JSON.stringify({ nin: normalizedNin }),
       signal: controller.signal,
     });
 
     clearTimeout(timeout);
 
     const raw = await response.text();
-    const data = parseNetappsResponse(raw);
+    console.log("NETAPPS RAW RESPONSE:", raw);
+
+    const data = safeParse(raw);
 
     if (!data) {
-      console.error("Invalid JSON response from NetApps:", raw);
-      return createErrorResult("Invalid JSON response from verification API.", response.status);
+      return createErrorResult("Invalid JSON from API", response.status);
     }
 
     if (!response.ok) {
-      console.error("NIN verification HTTP error:", response.status, data);
       return createErrorResult(
-        data.message || String(data.error || `API request failed (${response.status}).`),
+        data.message || "API request failed",
         response.status
       );
     }
 
-    // Step 6: Process response
-    return processAPIResponse(data);
-  } catch (error: any) {
-    if (error.name === "AbortError") {
-      return createErrorResult("Verification request timed out. Please try again.");
+    return normalizeResponse(data);
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      return createErrorResult("Request timed out");
     }
-    console.error(" Error verifying NIN:", error);
-    return createErrorResult("Something went wrong during NIN verification.");
+
+    return createErrorResult("Unexpected error during verification");
   }
 }
 
 /**
- * Validates NIN input format
+ * VALIDATION
  */
 function validateNIN(nin: string): string | null {
-  if (!nin || typeof nin !== "string") return "NIN must be a string.";
-  if (!NIN_REGEX.test(nin.trim())) return "Invalid NIN format. Must be exactly 11 digits.";
+  if (!nin || typeof nin !== "string") return "NIN must be a string";
+  if (!NIN_REGEX.test(nin)) return "NIN must be exactly 11 digits";
   return null;
 }
 
-function buildNinVerificationPayload(url: string, nin: string) {
-  if (url.includes("/whitelabel/verify")) {
-    return {
-      kycType: "nin",
-      nin,
-    };
-  }
-
-  return { nin };
-}
-
-function parseNetappsResponse(raw: string): NetAppsNINResponse | null {
+/**
+ * SAFE JSON PARSE
+ */
+function safeParse(raw: string): NetAppsNINResponse | null {
   try {
-    return JSON.parse(raw) as NetAppsNINResponse;
+    return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 
 /**
- * Interprets API response
+ * 🔥 FIXED RESPONSE NORMALIZER (MAIN FIX IS HERE)
  */
-function processAPIResponse(data: NetAppsNINResponse): VerificationResult {
-  const status = data?.status?.toLowerCase();
-  const hasValidData = data?.data && typeof data.data === "object";
-  const hasBooleanSuccess = data?.error === false && hasValidData;
+function normalizeResponse(data: NetAppsNINResponse): VerificationResult {
+  console.log("PARSED NETAPPS RESPONSE:", data);
 
-  if ((status === "successful" || status === "success" || hasBooleanSuccess) && hasValidData) {
+  const status = data?.status?.toLowerCase();
+
+  const hasDataObject =
+    data?.data && typeof data.data === "object";
+
+  const isSuccessStatus =
+    status === "success" || status === "successful";
+
+  const isBooleanSuccess =
+    data?.error === false;
+
+  // ✅ FIXED ROOT NIN HANDLING
+  const ninValue =
+    data?.nin !== undefined && data?.nin !== null
+      ? String(data.nin).trim()
+      : null;
+
+  const hasRootNin =
+    ninValue !== null && NIN_REGEX.test(ninValue);
+
+  /**
+   * CASE 1: wrapped success response
+   */
+  if (isSuccessStatus && hasDataObject) {
     return {
       verified: true,
-      message: data.message || "NIN verified successfully.",
+      message: data.message || "NIN verified successfully",
       data: data.data,
     };
   }
 
-  // Handle specific known messages from API
-  const message = data?.message || (data?.error && typeof data.error === "string" ? data.error : "") || "NIN verification failed.";
+  /**
+   * CASE 2: boolean success response
+   */
+  if (isBooleanSuccess && hasDataObject) {
+    return {
+      verified: true,
+      message: data.message || "NIN verified successfully",
+      data: data.data,
+    };
+  }
 
+  /**
+   * CASE 3: ROOT LEVEL RESPONSE (YOUR REAL NETAPPS RESPONSE)
+   */
+  if (hasRootNin) {
+    return {
+      verified: true,
+      message: "NIN verified successfully",
+      data: {
+        nin: ninValue,
+        firstname: data.firstname ?? null,
+        surname: data.surname ?? null,
+        middlename: data.middlename ?? null,
+        gender: data.gender ?? null,
+        birthdate: data.birthdate ?? null,
+        telephoneno: data.telephoneno ?? null,
+        residenceAdressLine1: data.residenceAdressLine1 ?? null,
+        residenceTown: data.residenceTown ?? null,
+        residenceLga: data.residenceLga ?? null,
+        residenceState: data.residenceState ?? null,
+      },
+    };
+  }
+
+  /**
+   * FAIL CASE
+   */
   return {
     verified: false,
-    message,
+    message: data?.message || "NIN verification failed",
     data: null,
   };
 }
 
 /**
- *  Creates standardized error result
+ * ERROR HELPER (fixes exactOptionalPropertyTypes issue)
  */
-function createErrorResult(message: string, statusCode?: number): VerificationResult {
-  return { verified: false, message, data: null, statusCode };
+function createErrorResult(
+  message: string,
+  statusCode?: number
+): VerificationResult {
+  const result: VerificationResult = {
+    verified: false,
+    message,
+    data: null,
+  };
+
+  if (typeof statusCode === "number") {
+    result.statusCode = statusCode;
+  }
+
+  return result;
 }
 
 /**
- * Placeholder for BVN verification (to be implemented)
+ * BVN placeholder
  */
-export async function verifyBVN(bvn: string): Promise<VerificationResult> {
-  return createErrorResult("BVN verification not implemented yet.");
+export async function verifyBVN(
+  bvn: string
+): Promise<VerificationResult> {
+  return {
+    verified: false,
+    message: "BVN verification not implemented yet",
+    data: null,
+  };
 }
