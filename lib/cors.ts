@@ -4,7 +4,8 @@ import { NextResponse, NextRequest } from "next/server";
 const allowedOrigins = [
   "http://localhost:3000",                   
   "https://ippis-frontend.vercel.app", 
-  "https://staff-management-and-identity-verif.vercel.app"     
+  "https://staff-management-and-identity-verif.vercel.app",
+  "https://nigeria-police-personnel-database.vercel.app"
 ];
 
 // ✅ Generate CORS headers dynamically
