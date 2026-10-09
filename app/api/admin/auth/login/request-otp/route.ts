@@ -16,6 +16,7 @@ type AdminUserRow = {
   username: string;
   email: string;
   role: string;
+  is_active: boolean;
 };
 
 export const runtime = "nodejs"; // required for SMTP
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     // 1️⃣ Find admin user
     const result = await sql`
-      SELECT id, username, email, role
+      SELECT id, username, email, role, is_active
       FROM admin_users
       WHERE username = ${username ?? null} OR email = ${email ?? null}
       LIMIT 1
@@ -58,6 +59,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, message: "Admin user not found" },
         { status: 401 }
+      );
+    }
+
+    // Suspended or deactivated accounts must not obtain new access
+    if (!user.is_active) {
+      return NextResponse.json(
+        { success: false, message: "Account is not active" },
+        { status: 403 }
       );
     }
 

@@ -21,6 +21,7 @@ type AdminUserRow = {
   email: string;
   password_hash: string;
   role: string;
+  is_active: boolean;
 };
 
 function generateOTP() {
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
 
     // 1?? Fetch user
     const userResult = await sql`
-      SELECT id, username, email, password_hash, role
+      SELECT id, username, email, password_hash, role, is_active
       FROM admin_users
       WHERE username = ${username ?? ''} OR email = ${email ?? ''}
       LIMIT 1
@@ -71,6 +72,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, message: 'Invalid password' },
         { status: 401 }
+      );
+    }
+
+    // Suspended or deactivated accounts must not obtain new access
+    if (!user.is_active) {
+      return NextResponse.json(
+        { success: false, message: 'Account is not active' },
+        { status: 403 }
       );
     }
 
