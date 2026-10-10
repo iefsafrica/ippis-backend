@@ -212,12 +212,20 @@ export async function authenticate(req: NextRequest): Promise<AuthResult> {
  *
  *   const auth = await requirePermission(req, "employees.records.view");
  *   if (!auth.ok) return auth.response;
+ *
+ * A self-scoped grant ("own records") is refused unless the route passes
+ * { allowSelf: true } and then limits the data to the caller's own records.
  */
-export async function requirePermission(req: NextRequest, key: string): Promise<AuthResult> {
+export async function requirePermission(
+  req: NextRequest,
+  key: string,
+  options: { allowSelf?: boolean } = {}
+): Promise<AuthResult> {
   const auth = await authenticate(req);
   if (!auth.ok) return auth;
 
-  if (!can(auth.ctx, key)) {
+  const allowed = options.allowSelf ? holds(auth.ctx, key) : can(auth.ctx, key);
+  if (!allowed) {
     return {
       ok: false,
       response: deny(req, 403, "You do not have permission to perform this action", { required: key }),
@@ -232,7 +240,13 @@ export async function requirePermission(req: NextRequest, key: string): Promise<
  * =========================
  */
 
+/** Holds the permission in an organisational scope (global, MDA or department). */
 export function can(ctx: AuthContext, key: string): boolean {
+  return ctx.grants.some((g) => g.key === key && g.level !== "self");
+}
+
+/** Holds the permission in any scope, including own records only. */
+export function holds(ctx: AuthContext, key: string): boolean {
   return ctx.grants.some((g) => g.key === key);
 }
 

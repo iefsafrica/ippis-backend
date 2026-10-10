@@ -123,30 +123,42 @@ async function assignRole(req: NextRequest, ctx: AuthContext, body: any) {
     }
   }
 
-  await runAudited(
-    req,
-    ctx,
-    {
-      action: "access.role.assigned",
-      targetType: "user",
-      targetId: userId,
-      reason,
-      details: { role_id: roleId, role: role.name, scope, expires_at: expiresAt },
-    },
-    [
-      db`
-        INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, expires_at, assigned_by, reason)
-        VALUES (${userId}, ${roleId}, ${scope.level}, ${scope.companyId}, ${scope.departmentId}, ${expiresAt}, ${ctx.userId}, ${reason})
-        ON CONFLICT (user_id, role_id, COALESCE(company_id, 0), COALESCE(department_id, 0))
-        DO UPDATE SET
-          scope_level = EXCLUDED.scope_level,
-          expires_at = EXCLUDED.expires_at,
-          assigned_by = EXCLUDED.assigned_by,
-          assigned_at = NOW(),
-          reason = EXCLUDED.reason
-      `,
-    ]
-  );
+  // Replace an existing assignment in the same scope, then insert
+  try {
+    await runAudited(
+      req,
+      ctx,
+      {
+        action: "access.role.assigned",
+        targetType: "user",
+        targetId: userId,
+        reason,
+        details: { role_id: roleId, role: role.name, scope, expires_at: expiresAt },
+      },
+      [
+        db`
+          DELETE FROM user_roles
+          WHERE user_id = ${userId}
+            AND role_id = ${roleId}
+            AND company_id IS NOT DISTINCT FROM ${scope.companyId}::int
+            AND department_id IS NOT DISTINCT FROM ${scope.departmentId}::int
+        `,
+        db`
+          INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, expires_at, assigned_by, reason)
+          VALUES (${userId}, ${roleId}, ${scope.level}, ${scope.companyId}, ${scope.departmentId}, ${expiresAt}, ${ctx.userId}, ${reason})
+        `,
+      ]
+    );
+  } catch (error: any) {
+    // Until rbac-migration-2-multi-scope.sql is run, a role can be held in one scope only
+    if (error?.code === "23505") {
+      return withCors(req, {
+        success: false,
+        error: "User already holds this role in another scope. Remove that assignment first.",
+      }, 409);
+    }
+    throw error;
+  }
 
   return withCors(req, { success: true, message: "Role assigned to user successfully" });
 }

@@ -1,8 +1,12 @@
 -- Role-based access control: schema upgrade + catalogue seed.
 -- Additive and safe to re-run. Existing rows in roles/permissions are left alone;
 -- rows without a key are simply never matched by the permission engine.
+-- Nothing here changes a column, key or constraint that deployed code relies on.
 
 BEGIN;
+
+-- Give up rather than queue behind a busy table and block logins
+SET LOCAL lock_timeout = '5s';
 
 -- ---------------------------------------------------------------------------
 -- permissions: module.resource.action keys
@@ -32,8 +36,9 @@ ALTER TABLE roles ADD CONSTRAINT roles_default_scope_check
 -- ---------------------------------------------------------------------------
 -- user_roles: organisational scope, expiry, attribution
 -- MDA = companies, department = departments.
--- The same role may be held in more than one MDA/department, so the key moves
--- from (user_id, role_id) to a surrogate id plus a per-scope unique index.
+-- The (user_id, role_id) primary key stays for now: the code on main still
+-- inserts with ON CONFLICT (user_id, role_id). rbac-migration-2-multi-scope.sql
+-- relaxes it once the new code is deployed.
 -- ---------------------------------------------------------------------------
 ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS id BIGSERIAL;
 ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS scope_level VARCHAR(20) NOT NULL DEFAULT 'self';
@@ -44,11 +49,7 @@ ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS assigned_by VARCHAR(50);
 ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS reason TEXT;
 
-ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_pkey;
-ALTER TABLE user_roles ADD CONSTRAINT user_roles_pkey PRIMARY KEY (id);
-CREATE UNIQUE INDEX IF NOT EXISTS user_roles_assignment_key
-    ON user_roles (user_id, role_id, COALESCE(company_id, 0), COALESCE(department_id, 0));
-CREATE INDEX IF NOT EXISTS user_roles_user_id_idx ON user_roles (user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS user_roles_id_key ON user_roles (id);
 
 ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_scope_check;
 ALTER TABLE user_roles ADD CONSTRAINT user_roles_scope_check CHECK (
