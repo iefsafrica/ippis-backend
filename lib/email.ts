@@ -19,6 +19,13 @@ export const transporter = nodemailer.createTransport({
  * @param otp OTP code
  */
 export async function sendOTPEmail(to: string, otp: string) {
+  // Local development only: print the OTP instead of emailing it.
+  // `next build` / `next start` always run with NODE_ENV=production, so deployed servers never log it.
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[OTP Email] DEV MODE - email not sent. OTP for ${to}: ${otp}`);
+    return null;
+  }
+
   console.log(`[OTP Email] Attempting to send OTP to: ${to}`);
 
   try {

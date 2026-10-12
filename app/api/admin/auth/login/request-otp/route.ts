@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { neon } from "@neondatabase/serverless";
 import crypto from "crypto";
@@ -34,15 +34,20 @@ function isAllowedAdminRole(role: string) {
   return ["admin", "superadmin"].includes(normalizedRole);
 }
 
+export async function OPTIONS(req: NextRequest) {
+  return handleOptions(req);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as OTPRequestBody;
     const { username, email } = body;
 
     if (!username && !email) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: "Username or email is required" },
-        { status: 400 }
+        400
       );
     }
 
@@ -56,31 +61,33 @@ export async function POST(req: NextRequest) {
 
     const user = result[0] as AdminUserRow | undefined;
     if (!user) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: "Admin user not found" },
-        { status: 401 }
+        401
       );
     }
 
     // Suspended or deactivated accounts must not obtain new access
     if (!user.is_active) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: "Account is not active" },
-        { status: 403 }
+        403
       );
     }
 
     if (!isAllowedAdminRole(user.role)) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: "Access denied: Admin privileges required" },
-        { status: 403 }
+        403
       );
     }
 
     // 2️⃣ Generate OTP
     const otp = generateOTP();
     const otpHash = hashOTP(otp);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
     // 3️⃣ Remove any previous OTPs
     await sql`
@@ -88,10 +95,10 @@ export async function POST(req: NextRequest) {
       WHERE admin_id = ${user.id}
     `;
 
-    // 4️⃣ Store new OTP hashed in DB
+    // 4️⃣ Store new OTP hashed in DB (expires in 5 minutes, on the database clock)
     await sql`
       INSERT INTO admin_otps (admin_id, otp_hash, expires_at)
-      VALUES (${user.id}, ${otpHash}, ${expiresAt})
+      VALUES (${user.id}, ${otpHash}, NOW() + INTERVAL '5 minutes')
     `;
 
     // 5️⃣ Send OTP via email
@@ -99,25 +106,27 @@ export async function POST(req: NextRequest) {
       await sendOTPEmail(user.email, otp);
     } catch (emailError) {
       console.error("Failed to send OTP email:", emailError);
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: "Failed to send OTP email. Check SMTP credentials." },
-        { status: 500 }
+        500
       );
     }
 
-    return NextResponse.json({
+    return withCors(req, {
       success: true,
       message: "OTP has been sent to your registered email",
     });
   } catch (error) {
     console.error("OTP endpoint error details:", error);
-    return NextResponse.json(
+    return withCors(
+      req,
       {
         success: false,
         message: "Something went wrong. Check server logs.",
         error: (error as Error).message,
       },
-      { status: 500 }
+      500
     );
   }
 }

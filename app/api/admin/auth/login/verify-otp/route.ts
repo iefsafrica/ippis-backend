@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { neon } from "@neondatabase/serverless";
 import crypto from "crypto";
@@ -22,15 +22,20 @@ function hashOTP(otp: string) {
 const JWT_SECRET = process.env.JWT_SECRET!;
 const JWT_EXPIRATION = "1h"; // adjust as needed
 
+export async function OPTIONS(req: NextRequest) {
+  return handleOptions(req);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as VerifyOTPBody;
     const { username, email, otp } = body;
 
     if ((!username && !email) || !otp) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: "Username/email and OTP are required" },
-        { status: 400 }
+        400
       );
     }
 
@@ -43,23 +48,27 @@ export async function POST(req: NextRequest) {
     `;
     const user = result[0];
     if (!user) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: "Admin user not found" },
-        { status: 401 }
+        401
       );
     }
 
     // Suspended or deactivated accounts must not obtain new access
     if (!user.is_active) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: "Account is not active" },
-        { status: 403 }
+        403
       );
     }
 
     // 2️⃣ Fetch OTP from DB
+    // Expiry is compared in the database: expires_at has no time zone, so
+    // reading it into a JS Date would shift it by the server's UTC offset.
     const otpResult = await sql`
-      SELECT id, otp_hash, expires_at
+      SELECT id, otp_hash, (expires_at <= NOW()) AS expired
       FROM admin_otps
       WHERE admin_id = ${user.id}
       LIMIT 1
@@ -67,30 +76,30 @@ export async function POST(req: NextRequest) {
     const storedOTP = otpResult[0];
 
     if (!storedOTP) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: "No OTP found. Request a new one." },
-        { status: 400 }
+        400
       );
     }
 
-    const now = new Date();
-    const expiresAt = new Date(storedOTP.expires_at);
-
     // 3️⃣ Check expiration
-    if (now > expiresAt) {
+    if (storedOTP.expired) {
       await sql`DELETE FROM admin_otps WHERE id = ${storedOTP.id}`;
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: "OTP expired. Request a new one." },
-        { status: 400 }
+        400
       );
     }
 
     // 4️⃣ Check OTP match
     const hashedOTP = hashOTP(otp);
     if (hashedOTP !== storedOTP.otp_hash) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: "Invalid OTP" },
-        { status: 400 }
+        400
       );
     }
 
@@ -108,20 +117,21 @@ export async function POST(req: NextRequest) {
       { expiresIn: JWT_EXPIRATION }
     );
 
-    return NextResponse.json({
+    return withCors(req, {
       success: true,
       message: "OTP verified successfully",
       token, // JWT token for login
     });
   } catch (error) {
     console.error("OTP verification error:", error);
-    return NextResponse.json(
+    return withCors(
+      req,
       {
         success: false,
         message: "Something went wrong during OTP verification",
         error: (error as Error).message,
       },
-      { status: 500 }
+      500
     );
   }
 }

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { withCors, handleOptions } from "@/lib/cors";
 import { neon } from '@neondatabase/serverless';
 import bcrypt from 'bcryptjs';
@@ -37,15 +37,20 @@ function isAllowedAdminRole(role: string) {
   return ['admin', 'superadmin'].includes(normalizedRole);
 }
 
+export async function OPTIONS(req: NextRequest) {
+  return handleOptions(req);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as LoginRequest;
     const { username, email, password } = body;
 
     if ((!username && !email) || !password) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: 'Username/email and password are required' },
-        { status: 400 }
+        400
       );
     }
 
@@ -60,34 +65,38 @@ export async function POST(req: NextRequest) {
     const user = userResult[0] as AdminUserRow | undefined;
 
     if (!user) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: 'User not found' },
-        { status: 401 }
+        401
       );
     }
 
     // 2?? Validate password
     const passwordValid = await bcrypt.compare(password, user.password_hash);
     if (!passwordValid) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: 'Invalid password' },
-        { status: 401 }
+        401
       );
     }
 
     // Suspended or deactivated accounts must not obtain new access
     if (!user.is_active) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: 'Account is not active' },
-        { status: 403 }
+        403
       );
     }
 
     // 3?? Validate role
     if (!isAllowedAdminRole(user.role)) {
-      return NextResponse.json(
+      return withCors(
+        req,
         { success: false, message: 'Access denied: Admin privileges required' },
-        { status: 403 }
+        403
       );
     }
 
@@ -111,7 +120,7 @@ export async function POST(req: NextRequest) {
     // 5?? Send OTP email
     await sendOTPEmail(user.email, otp);
 
-    return NextResponse.json({
+    return withCors(req, {
       success: true,
       message: 'OTP sent to your registered email.',
       requiresOTP: true
@@ -119,15 +128,16 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     console.error('Login error:', error);
-    return NextResponse.json(
+    return withCors(
+      req,
       { success: false, message: 'Something went wrong during login' },
-      { status: 500 }
+      500
     );
   }
 }
 
-export async function GET() {
-  return NextResponse.json({
+export async function GET(req: NextRequest) {
+  return withCors(req, {
     endpoint: '/api/admin/auth/login',
     status: 'active',
     message: 'Admin Auth API is running',
