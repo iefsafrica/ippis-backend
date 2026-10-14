@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from '@neondatabase/serverless';
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -76,6 +77,9 @@ export async function GET(req: NextRequest) {
 // POST
 // -------------------------
 export async function POST(req: NextRequest) {
+  const auth = await requirePermission(req, "organization.structure.manage");
+  if (!auth.ok) return auth.response;
+
   const body = (await req.json()) as CreateCompanyBody;
 
   const { name, email, phone, status } = body;
@@ -131,6 +135,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  await runAudited(req, auth.ctx, { action: "organization.company.created", targetType: "organization.company", details: {} }, []);
+
   return NextResponse.json({ success: true, data: inserted });
 }
 
@@ -138,6 +144,9 @@ export async function POST(req: NextRequest) {
 // PUT
 // -------------------------
 export async function PUT(req: NextRequest) {
+  const auth = await requirePermission(req, "organization.structure.manage");
+  if (!auth.ok) return auth.response;
+
   const body = (await req.json()) as UpdateCompanyBody;
 
   const { id, name, email, phone, status } = body;
@@ -169,6 +178,8 @@ export async function PUT(req: NextRequest) {
     );
   }
 
+  await runAudited(req, auth.ctx, { action: "organization.company.updated", targetType: "organization.company", details: {} }, []);
+
   return NextResponse.json({ success: true, data: updated });
 }
 
@@ -176,6 +187,9 @@ export async function PUT(req: NextRequest) {
 // DELETE
 // -------------------------
 export async function DELETE(req: NextRequest) {
+  const auth = await requirePermission(req, "organization.structure.manage");
+  if (!auth.ok) return auth.response;
+
   const { searchParams } = new URL(req.url);
   const idParam = searchParams.get('id');
 
@@ -209,6 +223,8 @@ export async function DELETE(req: NextRequest) {
       { status: 404 }
     );
   }
+
+  await runAudited(req, auth.ctx, { action: "organization.company.deleted", targetType: "organization.company", details: {} }, []);
 
   return NextResponse.json({
     success: true,

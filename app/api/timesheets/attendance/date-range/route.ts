@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -16,6 +17,9 @@ export async function OPTIONS(req: NextRequest) {
 // -------------------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
 
     const start_date = searchParams.get("start_date");

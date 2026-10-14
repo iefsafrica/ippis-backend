@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import {
   canonicalizeRegistrationId,
   normalizeRegistrationId,
@@ -49,6 +50,9 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "employees.records.create");
+    if (!auth.ok) return auth.response;
+
     let body: any = {};
     try {
       body = await req.json();
@@ -257,6 +261,13 @@ The IPPHIS Team`;
     } catch (emailError) {
       console.error("Failed to send email:", emailError);
     }
+
+    await runAudited(req, auth.ctx, {
+      action: "employees.record.created",
+      targetType: "employee",
+      targetId: registrationId,
+      details: {},
+    }, []);
 
     return withCors(req, {
       success: true,

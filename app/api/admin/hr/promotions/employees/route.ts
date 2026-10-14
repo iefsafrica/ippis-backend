@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -12,6 +13,9 @@ export async function OPTIONS(req: NextRequest) {
 // GET — Fetch promoted employees
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.view");
+    if (!auth.ok) return auth.response;
+
     const query = `
       SELECT 
         ep.id               AS promotion_id,

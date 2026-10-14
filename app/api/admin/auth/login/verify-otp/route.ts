@@ -1,8 +1,15 @@
 import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { neon } from "@neondatabase/serverless";
-import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import { hit, peek, clear, clientIp, tooManyRequests } from "@/lib/rate-limit";
+import {
+  WINDOW_MS,
+  IP_LIMIT,
+  OTP_ATTEMPT_LIMIT,
+  OTP_ACCOUNT_LIMIT,
+  otpMatches,
+} from "@/lib/admin-otp";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -14,10 +21,6 @@ type VerifyOTPBody = {
 
 export const runtime = "nodejs"; // Node runtime required
 
-function hashOTP(otp: string) {
-  return crypto.createHash("sha256").update(otp).digest("hex");
-}
-
 // JWT secret (set in .env.local)
 const JWT_SECRET = process.env.JWT_SECRET!;
 const JWT_EXPIRATION = "1h"; // adjust as needed
@@ -28,6 +31,11 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const byIp = hit(`otp-verify:ip:${clientIp(req)}`, IP_LIMIT, WINDOW_MS);
+    if (!byIp.allowed) {
+      return tooManyRequests(req, byIp.retryAfter, "Too many attempts. Try again later.");
+    }
+
     const body = (await req.json()) as VerifyOTPBody;
     const { username, email, otp } = body;
 
@@ -50,8 +58,8 @@ export async function POST(req: NextRequest) {
     if (!user) {
       return withCors(
         req,
-        { success: false, message: "Admin user not found" },
-        401
+        { success: false, message: "Invalid OTP" },
+        400
       );
     }
 
@@ -62,6 +70,12 @@ export async function POST(req: NextRequest) {
         { success: false, message: "Account is not active" },
         403
       );
+    }
+
+    // Wrong codes are counted per account across every code it is sent
+    const accountKey = `otp:fail:${user.id}`;
+    if (peek(accountKey) >= OTP_ACCOUNT_LIMIT) {
+      return tooManyRequests(req, Math.ceil(WINDOW_MS / 1000), "Too many incorrect codes. Try again later.");
     }
 
     // 2️⃣ Fetch OTP from DB
@@ -93,18 +107,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4️⃣ Check OTP match
-    const hashedOTP = hashOTP(otp);
-    if (hashedOTP !== storedOTP.otp_hash) {
+    // 4️⃣ Check OTP match. A resend keeps the row but changes the hash, so the
+    // count is kept per code.
+    const codeKey = `otp:try:${storedOTP.id}:${String(storedOTP.otp_hash).slice(0, 16)}`;
+    if (!otpMatches(String(otp), storedOTP.otp_hash)) {
+      hit(accountKey, OTP_ACCOUNT_LIMIT, WINDOW_MS);
+      const tries = hit(codeKey, OTP_ATTEMPT_LIMIT, WINDOW_MS);
+
+      if (tries.count >= OTP_ATTEMPT_LIMIT) {
+        // The code is spent: the password is needed again
+        await sql`DELETE FROM admin_otps WHERE id = ${storedOTP.id}`;
+        clear(codeKey);
+        return withCors(
+          req,
+          { success: false, message: "Too many incorrect codes. Sign in with your password again." },
+          429
+        );
+      }
+
       return withCors(
         req,
-        { success: false, message: "Invalid OTP" },
+        { success: false, message: "Invalid OTP", attemptsLeft: OTP_ATTEMPT_LIMIT - tries.count },
         400
       );
     }
 
     // 5️⃣ OTP is valid → delete it for security
     await sql`DELETE FROM admin_otps WHERE id = ${storedOTP.id}`;
+    clear(codeKey);
+    clear(accountKey);
 
     // 6️⃣ Generate JWT token
     const token = jwt.sign(
@@ -126,11 +157,7 @@ export async function POST(req: NextRequest) {
     console.error("OTP verification error:", error);
     return withCors(
       req,
-      {
-        success: false,
-        message: "Something went wrong during OTP verification",
-        error: (error as Error).message,
-      },
+      { success: false, message: "Something went wrong during OTP verification" },
       500
     );
   }

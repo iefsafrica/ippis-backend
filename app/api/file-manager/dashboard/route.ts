@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,9 @@ export async function OPTIONS(req: NextRequest) {
 // ---------------- GET DASHBOARD ----------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "files.records.view");
+    if (!auth.ok) return auth.response;
+
     // 1. Storage Stats
     const statsRes = await db`
       SELECT 

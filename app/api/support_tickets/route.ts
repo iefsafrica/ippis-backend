@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 import crypto from "crypto"
 
 export const dynamic = "force-dynamic"
@@ -30,6 +31,9 @@ export async function OPTIONS(req: NextRequest) {
 // POST: Create new ticket
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "support.tickets.manage")
+    if (!auth.ok) return auth.response
+
     const body = (await req.json()) as {
       subject: string
       description: string
@@ -80,6 +84,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     ` as SupportTicket[]
 
+    await runAudited(req, auth.ctx, { action: "support.ticket.created", targetType: "support.ticket", details: {} }, [])
+
     return withCors(req, {
       success: true,
       message: "Support ticket created successfully",
@@ -99,6 +105,9 @@ export async function POST(req: NextRequest) {
 // GET: List tickets with optional query params
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "support.tickets.view")
+    if (!auth.ok) return auth.response
+
     const { searchParams } = new URL(req.url)
     const page = Number(searchParams.get("page") || "1")
     const limit = Number(searchParams.get("limit") || "10")
@@ -142,6 +151,9 @@ export async function GET(req: NextRequest) {
 // PATCH: Update ticket (status, assigned_to, priority)
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "support.tickets.manage")
+    if (!auth.ok) return auth.response
+
     const body = (await req.json()) as {
       ticket_id: string
       status?: string
@@ -170,6 +182,8 @@ export async function PATCH(req: NextRequest) {
       return withCors(req, { success: false, error: "Ticket not found" }, 404)
     }
 
+    await runAudited(req, auth.ctx, { action: "support.ticket.updated", targetType: "support.ticket", details: {} }, [])
+
     return withCors(req, {
       success: true,
       message: "Ticket updated successfully",
@@ -189,6 +203,9 @@ export async function PATCH(req: NextRequest) {
 // DELETE: Remove ticket
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "support.tickets.manage")
+    if (!auth.ok) return auth.response
+
     const { searchParams } = new URL(req.url)
     const ticketId = searchParams.get("ticket_id")
 
@@ -200,6 +217,8 @@ export async function DELETE(req: NextRequest) {
       DELETE FROM support_tickets
       WHERE ticket_id = ${ticketId}
     `
+
+    await runAudited(req, auth.ctx, { action: "support.ticket.deleted", targetType: "support.ticket", details: {} }, [])
 
     return withCors(req, {
       success: true,

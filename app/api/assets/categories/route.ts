@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,9 @@ export async function OPTIONS(req: NextRequest) {
 // ---------------- CREATE ----------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "assets.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<AssetCategory>;
 
     if (!body.category_name) {
@@ -43,6 +47,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "assets.category.created", targetType: "assets.category", details: {} }, []);
+
     return withCors(req, {
       success: true,
       data: result?.[0] ?? null
@@ -57,6 +63,9 @@ export async function POST(req: NextRequest) {
 // ---------------- READ ----------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "assets.records.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const categoryId = searchParams.get("category_id");
 
@@ -99,6 +108,9 @@ export async function GET(req: NextRequest) {
 // ---------------- UPDATE ----------------
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "assets.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<AssetCategory>;
 
     if (!body.category_id) {
@@ -120,6 +132,8 @@ export async function PATCH(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "assets.category.updated", targetType: "assets.category", details: {} }, []);
+
     return withCors(req, {
       success: true,
       data: updated?.[0] ?? null
@@ -134,6 +148,9 @@ export async function PATCH(req: NextRequest) {
 // ---------------- DELETE ----------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "assets.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const categoryId = searchParams.get("category_id");
 
@@ -149,6 +166,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     await db`DELETE FROM asset_categories WHERE category_id = ${categoryId}`;
+
+    await runAudited(req, auth.ctx, { action: "assets.category.deleted", targetType: "assets.category", details: {} }, []);
 
     return withCors(req, { success: true, message: "Category deleted" });
 

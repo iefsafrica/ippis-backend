@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -35,6 +36,9 @@ export async function OPTIONS(req: NextRequest) {
 // GET transfers (all, by id, or by employee_id)
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.view");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
     const employee_id = req.nextUrl.searchParams.get("employee_id");
 
@@ -88,6 +92,9 @@ export async function GET(req: NextRequest) {
 // POST new transfer (with employee validation)
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const rawBody = await req.text();
     if (!rawBody) {
       return withCors(req, { success: false, error: "Request body is empty" }, 400);
@@ -151,6 +158,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "corehr.transfer.created", targetType: "corehr.transfer", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Employee transfer created successfully",
@@ -169,6 +178,9 @@ export async function POST(req: NextRequest) {
 // PUT update transfer (pending only)
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as Partial<TransferPayload>;
     const { id } = body;
 
@@ -207,6 +219,8 @@ export async function PUT(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "corehr.transfer.updated", targetType: "corehr.transfer", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Transfer updated successfully",
@@ -225,6 +239,9 @@ export async function PUT(req: NextRequest) {
 // DELETE transfer (pending only)
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
 
     if (!id) {
@@ -247,6 +264,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     await sql`DELETE FROM employee_transfers WHERE id = ${id}`;
+
+    await runAudited(req, auth.ctx, { action: "corehr.transfer.deleted", targetType: "corehr.transfer", details: {} }, []);
 
     return withCors(req, {
       success: true,

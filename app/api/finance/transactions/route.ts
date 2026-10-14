@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,9 @@ export async function OPTIONS(req: NextRequest) {
 // ---------------- CREATE ----------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<Transaction>;
 
     const {
@@ -103,6 +107,8 @@ export async function POST(req: NextRequest) {
       `;
     }
 
+    await runAudited(req, auth.ctx, { action: "finance.transaction.created", targetType: "finance.transaction", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Transaction created successfully",
@@ -121,6 +127,9 @@ export async function POST(req: NextRequest) {
 // ---------------- READ ----------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const transactionId = searchParams.get("transaction_id");
 
@@ -214,6 +223,9 @@ export async function GET(req: NextRequest) {
 // ---------------- UPDATE ----------------
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<Transaction> & { transaction_id: string };
 
     if (!body.transaction_id) {
@@ -267,6 +279,8 @@ export async function PATCH(req: NextRequest) {
       `;
     }
 
+    await runAudited(req, auth.ctx, { action: "finance.transaction.updated", targetType: "finance.transaction", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Transaction updated successfully",
@@ -285,6 +299,9 @@ export async function PATCH(req: NextRequest) {
 // ---------------- DELETE ----------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const transactionId = searchParams.get("transaction_id");
 
@@ -313,6 +330,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     await db`DELETE FROM finance_transactions WHERE transaction_id = ${transactionId}`;
+
+    await runAudited(req, auth.ctx, { action: "finance.transaction.deleted", targetType: "finance.transaction", details: {} }, []);
 
     return withCors(req, {
       success: true,

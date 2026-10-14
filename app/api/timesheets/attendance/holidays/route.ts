@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -31,6 +32,9 @@ GET Holidays
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.view");
+    if (!auth.ok) return auth.response;
+
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
@@ -77,6 +81,9 @@ POST Create Holiday
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.manage");
+    if (!auth.ok) return auth.response;
+
 
     const body = (await req.json()) as HolidayBody;
 
@@ -113,6 +120,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "timesheets.holiday.created", targetType: "timesheets.holiday", details: {} }, []);
+
     return withCors(req,{
       success:true,
       message:"Holiday created successfully",
@@ -136,6 +145,9 @@ PUT Update Holiday
 
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.manage");
+    if (!auth.ok) return auth.response;
+
 
     const body = (await req.json()) as HolidayBody;
 
@@ -169,6 +181,8 @@ export async function PUT(req: NextRequest) {
       return withCors(req,{success:false,message:"Holiday not found"},404);
     }
 
+    await runAudited(req, auth.ctx, { action: "timesheets.holiday.updated", targetType: "timesheets.holiday", details: {} }, []);
+
     return withCors(req,{
       success:true,
       message:"Holiday updated successfully",
@@ -192,6 +206,9 @@ DELETE Holiday
 
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.manage");
+    if (!auth.ok) return auth.response;
+
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
@@ -209,6 +226,8 @@ export async function DELETE(req: NextRequest) {
     if (!result.length) {
       return withCors(req,{success:false,message:"Holiday not found"},404);
     }
+
+    await runAudited(req, auth.ctx, { action: "timesheets.holiday.deleted", targetType: "timesheets.holiday", details: {} }, []);
 
     return withCors(req,{
       success:true,

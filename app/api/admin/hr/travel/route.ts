@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -30,6 +31,9 @@ export async function OPTIONS(req: NextRequest) {
 // GET travel records (all, by id, or by employee_id)
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.view");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
     const employee_id = req.nextUrl.searchParams.get("employee_id");
 
@@ -75,6 +79,9 @@ export async function GET(req: NextRequest) {
 // POST new travel record with employee validation
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const rawBody = await req.text();
     if (!rawBody) return withCors(req, { success: false, error: "Request body is empty" }, 400);
 
@@ -104,6 +111,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "corehr.travel.created", targetType: "corehr.travel", details: {} }, []);
+
     return withCors(req, { success: true, message: "Travel record created successfully", data: result[0] }, 201);
   } catch (error) {
     console.error("Error creating travel record:", error);
@@ -114,6 +123,9 @@ export async function POST(req: NextRequest) {
 // PUT update travel record by id with employee validation
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as Partial<TravelPayload>;
     const { id, employee_id, employee_name } = body;
 
@@ -155,6 +167,8 @@ export async function PUT(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "corehr.travel.updated", targetType: "corehr.travel", details: {} }, []);
+
     return withCors(req, { success: true, message: "Travel record updated successfully", data: updated[0] });
   } catch (error) {
     console.error("Error updating travel record:", error);
@@ -165,6 +179,9 @@ export async function PUT(req: NextRequest) {
 // DELETE a travel record by id
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
     if (!id) return withCors(req, { success: false, error: "Travel id is required for deletion." }, 400);
 
@@ -172,6 +189,8 @@ export async function DELETE(req: NextRequest) {
     if (!existing[0]) return withCors(req, { success: false, error: "Travel record not found." }, 404);
 
     await sql`DELETE FROM employee_travel WHERE id = ${id}`;
+
+    await runAudited(req, auth.ctx, { action: "corehr.travel.deleted", targetType: "corehr.travel", details: {} }, []);
 
     return withCors(req, { success: true, message: "Travel record deleted successfully" });
   } catch (error) {

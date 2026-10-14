@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,9 @@ export async function OPTIONS(req: NextRequest) {
 // ---------------- CREATE ----------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "files.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<Folder>;
 
     if (!body.name) {
@@ -40,6 +44,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "files.folder.created", targetType: "files.folder", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Folder created successfully",
@@ -55,6 +61,9 @@ export async function POST(req: NextRequest) {
 // ---------------- READ ----------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "files.records.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const parentId = searchParams.get("parent_id");
     const folderId = searchParams.get("folder_id");
@@ -82,6 +91,9 @@ export async function GET(req: NextRequest) {
 // ---------------- UPDATE ----------------
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "files.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<Folder>;
 
     if (!body.folder_id) {
@@ -102,6 +114,8 @@ export async function PATCH(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "files.folder.updated", targetType: "files.folder", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Folder updated",
@@ -117,6 +131,9 @@ export async function PATCH(req: NextRequest) {
 // ---------------- DELETE ----------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "files.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const folderId = searchParams.get("folder_id");
 
@@ -131,6 +148,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     await db`DELETE FROM file_manager_folders WHERE folder_id = ${folderId}`;
+
+    await runAudited(req, auth.ctx, { action: "files.folder.deleted", targetType: "files.folder", details: {} }, []);
 
     return withCors(req, { success: true, message: "Folder deleted" });
 

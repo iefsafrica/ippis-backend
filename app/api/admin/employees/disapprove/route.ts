@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -14,6 +15,9 @@ export async function OPTIONS(req: NextRequest) {
 // POST: Disapprove pending employee
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "employees.registrations.approve")
+    if (!auth.ok) return auth.response
+
     const body = (await req.json()) as { registration_id?: string }
     const registrationId = body.registration_id
 
@@ -44,6 +48,13 @@ export async function POST(req: NextRequest) {
       DELETE FROM pending_employees
       WHERE registration_id = ${registrationId}
     `
+
+    await runAudited(req, auth.ctx, {
+      action: "employees.registration.rejected",
+      targetType: "registration",
+      targetId: registrationId,
+      details: {},
+    }, [])
 
     return withCors(req, {
       success: true,

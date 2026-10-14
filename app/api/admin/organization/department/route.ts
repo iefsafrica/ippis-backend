@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { withCors, handleOptions } from "@/lib/cors";
 import { neon } from '@neondatabase/serverless';
 
@@ -89,6 +90,9 @@ export async function GET(req: NextRequest) {
 // =========================
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as CreateDepartmentBody;
     const { name, status } = body;
 
@@ -128,6 +132,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    await runAudited(req, auth.ctx, { action: "organization.department.created", targetType: "organization.department", details: {} }, []);
+
     return NextResponse.json({
       success: true,
       data: {
@@ -153,6 +159,9 @@ export async function POST(req: NextRequest) {
 // =========================
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as UpdateDepartmentBody;
     const { id, name, status } = body;
 
@@ -181,6 +190,8 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    await runAudited(req, auth.ctx, { action: "organization.department.updated", targetType: "organization.department", details: {} }, []);
+
     return NextResponse.json({
       success: true,
       data: {
@@ -206,6 +217,9 @@ export async function PUT(req: NextRequest) {
 // =========================
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 
@@ -229,6 +243,8 @@ export async function DELETE(req: NextRequest) {
         { status: 404 }
       );
     }
+
+    await runAudited(req, auth.ctx, { action: "organization.department.deleted", targetType: "organization.department", details: {} }, []);
 
     return NextResponse.json({
       success: true,

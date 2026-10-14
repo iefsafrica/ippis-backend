@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -11,6 +12,9 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.approve");
+    if (!auth.ok) return auth.response;
+
     const { id, disapproved_by, reason } = (await req.json()) as {
       id?: number;
       disapproved_by?: string;
@@ -54,6 +58,8 @@ export async function PATCH(req: NextRequest) {
     if (!disapproved[0]) {
       return withCors(req, { success: false, error: "Disapproval failed." }, 500);
     }
+
+    await runAudited(req, auth.ctx, { action: "corehr.resignation.rejected", targetType: "corehr.resignation", details: {} }, []);
 
     return withCors(req, {
       success: true,

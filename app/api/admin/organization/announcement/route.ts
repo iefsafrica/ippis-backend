@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from '@neondatabase/serverless';
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -54,6 +55,9 @@ export async function OPTIONS(req: NextRequest) {
 // =========================
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 
@@ -102,6 +106,9 @@ export async function GET(req: NextRequest) {
 // =========================
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as CreateAnnouncementBody;
 
     const {
@@ -151,6 +158,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "organization.announcement.created", targetType: "organization.announcement", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: 'Announcement created successfully',
@@ -168,6 +177,9 @@ export async function POST(req: NextRequest) {
 // =========================
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as UpdateAnnouncementBody;
 
     const {
@@ -209,6 +221,8 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    await runAudited(req, auth.ctx, { action: "organization.announcement.updated", targetType: "organization.announcement", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: 'Announcement updated successfully',
@@ -226,6 +240,9 @@ export async function PUT(req: NextRequest) {
 // =========================
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 
@@ -250,6 +267,8 @@ export async function DELETE(req: NextRequest) {
         404
       );
     }
+
+    await runAudited(req, auth.ctx, { action: "organization.announcement.deleted", targetType: "organization.announcement", details: {} }, []);
 
     return withCors(req, {
       success: true,

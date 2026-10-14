@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { authenticate } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { format } from "date-fns";
 import { withCors, handleOptions } from "@/lib/cors"; 
@@ -11,6 +12,10 @@ export async function OPTIONS(req: NextRequest) {
 // ? Main GET request handler
 export async function GET(req: NextRequest) {
   try {
+    // Any signed-in admin; figures are not yet limited to the caller's MDA
+    const auth = await authenticate(req);
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const type = searchParams.get("type") || "recent";
     const limit = Number.parseInt(searchParams.get("limit") || "10", 10);

@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,9 @@ export async function OPTIONS(req: NextRequest) {
 // ----------------- CREATE -----------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "support.tickets.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as {
       title: string;
       category: string;
@@ -59,6 +63,8 @@ export async function POST(req: NextRequest) {
 
     const article = result as unknown as KnowledgeBaseArticle[];
 
+    await runAudited(req, auth.ctx, { action: "support.article.created", targetType: "support.article", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Knowledge base article created successfully",
@@ -78,6 +84,9 @@ export async function POST(req: NextRequest) {
 // ----------------- READ -----------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "support.tickets.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const page = Number(searchParams.get("page") || "1");
     const limit = Number(searchParams.get("limit") || "10");
@@ -120,6 +129,9 @@ export async function GET(req: NextRequest) {
 // ----------------- UPDATE -----------------
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "support.tickets.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as {
       kb_id: string;
       title?: string;
@@ -171,6 +183,8 @@ export async function PATCH(req: NextRequest) {
 
     const updated = result as unknown as KnowledgeBaseArticle[];
 
+    await runAudited(req, auth.ctx, { action: "support.article.updated", targetType: "support.article", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "KB article updated successfully",
@@ -190,6 +204,9 @@ export async function PATCH(req: NextRequest) {
 // ----------------- DELETE -----------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "support.tickets.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const kbId = searchParams.get("kb_id");
 
@@ -200,6 +217,8 @@ export async function DELETE(req: NextRequest) {
     await db`
       DELETE FROM knowledge_base WHERE kb_id = ${kbId}
     `;
+
+    await runAudited(req, auth.ctx, { action: "support.article.deleted", targetType: "support.article", details: {} }, []);
 
     return withCors(req, {
       success: true,

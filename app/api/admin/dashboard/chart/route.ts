@@ -1,9 +1,14 @@
-﻿import { NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { authenticate } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    // Any signed-in admin; figures are not yet limited to the caller's MDA
+    const auth = await authenticate(req);
+    if (!auth.ok) return auth.response;
+
     const sql = neon(process.env.DATABASE_URL!);
 
     // Generate labels for the last 6 months

@@ -2,6 +2,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -82,11 +83,14 @@ export async function GET(req: NextRequest) {
 
 // ─── PUT /api/admin/settings/general ───────────────────────────────────────────
 // Updates one or more general settings fields
-// Body: { systemName?, systemLogo?, systemLanguage?, systemTimezone?, updatedBy? }
+// Body: { systemName?, systemLogo?, systemLanguage?, systemTimezone? }
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "settings.system.manage")
+    if (!auth.ok) return auth.response
+
     const body = await req.json() as any
-    const { systemName, systemLogo, systemLanguage, systemTimezone, updatedBy } = body
+    const { systemName, systemLogo, systemLanguage, systemTimezone } = body
 
     const updates: { key: string; value: string }[] = []
     const errors: string[] = []
@@ -149,7 +153,8 @@ export async function PUT(req: NextRequest) {
       }, 400)
     }
 
-    const updatedByValue = updatedBy ? String(updatedBy).trim() : "system"
+    // Attribution comes from the session, not the request body
+    const updatedByValue = auth.ctx.user.username
     const now = new Date().toISOString()
 
     // Apply each update individually (keyed upsert pattern)
@@ -177,6 +182,13 @@ export async function PUT(req: NextRequest) {
     for (const row of refreshed) {
       result[row.key] = row.value
     }
+
+    await runAudited(req, auth.ctx, {
+      action: "settings.system.updated",
+      targetType: "settings",
+      targetId: "general",
+      details: { keys: updates.map((u) => u.key) },
+    }, [])
 
     return withCors(req, {
       success: true,

@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -33,6 +34,9 @@ export async function OPTIONS(req: NextRequest) {
 /* -------------------- GET -------------------- */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.view");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
     const manager_id = req.nextUrl.searchParams.get("project_manager_id");
 
@@ -68,6 +72,9 @@ export async function GET(req: NextRequest) {
 /* -------------------- POST -------------------- */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as ProjectPayload;
     const {
       project_title,
@@ -159,6 +166,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "projects.record.created", targetType: "projects.record", details: {} }, []);
+
     return withCors(req, { success: true, message: "Project created successfully", data: result[0] }, 201);
   } catch (error) {
     console.error("Error creating project:", error);
@@ -173,6 +182,9 @@ export async function POST(req: NextRequest) {
 /* -------------------- PUT -------------------- */
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as Partial<ProjectPayload>;
     const { id, project_manager_id, team_member_ids } = body;
 
@@ -233,6 +245,8 @@ export async function PUT(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "projects.record.updated", targetType: "projects.record", details: {} }, []);
+
     return withCors(req, { success: true, message: "Project updated successfully", data: updated[0] });
   } catch (error) {
     console.error("Error updating project:", error);
@@ -247,6 +261,9 @@ export async function PUT(req: NextRequest) {
 /* -------------------- DELETE -------------------- */
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.manage");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
 
     if (!id) {
@@ -254,6 +271,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     await sql`DELETE FROM employee_projects WHERE id = ${id}`;
+
+    await runAudited(req, auth.ctx, { action: "projects.record.deleted", targetType: "projects.record", details: {} }, []);
 
     return withCors(req, { success: true, message: "Project deleted successfully" });
   } catch (error) {

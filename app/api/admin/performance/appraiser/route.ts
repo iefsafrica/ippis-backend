@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { NextRequest, NextResponse } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { withCors, handleOptions } from "@/lib/cors";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -55,6 +56,9 @@ export async function OPTIONS(req: NextRequest) {
 // =========================
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -92,6 +96,9 @@ export async function GET(req: NextRequest) {
 // =========================
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as CreateAppraiserBody;
     const { employee_id, department_id, designation_id, appraisal_date, status, rating, remarks, added_by } = body;
 
@@ -106,6 +113,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "performance.appraiser.created", targetType: "performance.appraiser", details: {} }, []);
+
     return withCors(req, { success: true, message: "Appraiser created successfully", data: inserted[0] }, 201);
 
   } catch (error) {
@@ -119,6 +128,9 @@ export async function POST(req: NextRequest) {
 // =========================
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as UpdateAppraiserBody;
     const { id, employee_id, department_id, designation_id, appraisal_date, status, rating, remarks } = body;
 
@@ -143,6 +155,8 @@ export async function PUT(req: NextRequest) {
     if (!updated.length)
       return withCors(req, { success: false, message: "Appraiser not found" }, 404);
 
+    await runAudited(req, auth.ctx, { action: "performance.appraiser.updated", targetType: "performance.appraiser", details: {} }, []);
+
     return withCors(req, { success: true, message: "Appraiser updated successfully", data: updated[0] });
 
   } catch (error) {
@@ -156,6 +170,9 @@ export async function PUT(req: NextRequest) {
 // =========================
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as { id?: number };
     const { id } = body;
 
@@ -166,6 +183,8 @@ export async function DELETE(req: NextRequest) {
 
     if (!deleted.length)
       return withCors(req, { success: false, message: "Appraiser not found" }, 404);
+
+    await runAudited(req, auth.ctx, { action: "performance.appraiser.deleted", targetType: "performance.appraiser", details: {} }, []);
 
     return withCors(req, { success: true, message: "Appraiser deleted successfully", data: deleted[0] });
 

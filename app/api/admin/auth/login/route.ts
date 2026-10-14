@@ -2,8 +2,16 @@ import { NextRequest } from 'next/server';
 import { withCors, handleOptions } from "@/lib/cors";
 import { neon } from '@neondatabase/serverless';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto'; 
 import { sendOTPEmail } from '@lib/email';
+import { hit, peek, clear, clientIp, tooManyRequests } from '@/lib/rate-limit';
+import {
+  WINDOW_MS,
+  IP_LIMIT,
+  PASSWORD_FAILURE_LIMIT,
+  generateOTP,
+  hashOTP,
+  isAllowedAdminRole,
+} from '@/lib/admin-otp';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -24,18 +32,11 @@ type AdminUserRow = {
   is_active: boolean;
 };
 
-function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
+// Compared against when the account does not exist, so the response takes as
+// long as it does for a real account. It is the hash of a discarded random value.
+const UNKNOWN_ACCOUNT_HASH = '$2a$10$LOvYcqSsdQYahkhbZ7iHR.8mIzAicQRuOruboX.rRCI.r47K8wBsO';
 
-function hashOTP(otp: string) {
-  return crypto.createHash('sha256').update(otp).digest('hex');
-}
-
-function isAllowedAdminRole(role: string) {
-  const normalizedRole = role.replace(/\s+/g, '').toLowerCase();
-  return ['admin', 'superadmin'].includes(normalizedRole);
-}
+const INVALID_CREDENTIALS = 'Invalid username or password';
 
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
@@ -43,6 +44,12 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = clientIp(req);
+    const byIp = hit(`login:ip:${ip}`, IP_LIMIT, WINDOW_MS);
+    if (!byIp.allowed) {
+      return tooManyRequests(req, byIp.retryAfter, 'Too many sign-in attempts. Try again later.');
+    }
+
     const body = (await req.json()) as LoginRequest;
     const { username, email, password } = body;
 
@@ -54,30 +61,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1?? Fetch user
+    const failKey = `login:fail:${ip}:${String(username ?? email).toLowerCase()}`;
+    if (peek(failKey) >= PASSWORD_FAILURE_LIMIT) {
+      return tooManyRequests(req, Math.ceil(WINDOW_MS / 1000), 'Too many failed sign-in attempts. Try again later.');
+    }
+
+    // 1. Fetch user
     const userResult = await sql`
       SELECT id, username, email, password_hash, role, is_active
       FROM admin_users
-      WHERE username = ${username ?? ''} OR email = ${email ?? ''}
+      WHERE username = ${username ?? null} OR email = ${email ?? null}
       LIMIT 1
     `;
 
     const user = userResult[0] as AdminUserRow | undefined;
 
-    if (!user) {
+    // 2. Validate password. The same answer is given whether the account or the
+    // password is wrong, so the response does not reveal which usernames exist.
+    const passwordValid = await bcrypt.compare(password, user?.password_hash ?? UNKNOWN_ACCOUNT_HASH);
+    if (!user || !passwordValid) {
+      hit(failKey, PASSWORD_FAILURE_LIMIT, WINDOW_MS);
       return withCors(
         req,
-        { success: false, message: 'User not found' },
-        401
-      );
-    }
-
-    // 2?? Validate password
-    const passwordValid = await bcrypt.compare(password, user.password_hash);
-    if (!passwordValid) {
-      return withCors(
-        req,
-        { success: false, message: 'Invalid password' },
+        { success: false, message: INVALID_CREDENTIALS },
         401
       );
     }
@@ -91,7 +97,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3?? Validate role
+    // 3. Validate role
     if (!isAllowedAdminRole(user.role)) {
       return withCors(
         req,
@@ -100,14 +106,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4?? Generate OTP
+    clear(failKey);
+    // A fresh password sign-in starts a fresh allowance of resends
+    clear(`otp:resend:${user.id}`);
+
+    // 4. Generate OTP
     const otp = generateOTP();
     const otpHash = hashOTP(otp);
 
     // Delete existing OTPs for this admin
     await sql`DELETE FROM admin_otps WHERE admin_id = ${user.id}`;
 
-    // Store new OTP (expires in 5 minutes)
+    // Store new OTP (expires in 5 minutes). created_at marks when the password
+    // was verified; request-otp only resends while that is recent.
     await sql`
       INSERT INTO admin_otps (admin_id, otp_hash, expires_at)
       VALUES (
@@ -117,7 +128,7 @@ export async function POST(req: NextRequest) {
       )
     `;
 
-    // 5?? Send OTP email
+    // 5. Send OTP email
     await sendOTPEmail(user.email, otp);
 
     return withCors(req, {

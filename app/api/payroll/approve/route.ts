@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -12,6 +13,9 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "payroll.cycles.approve")
+    if (!auth.ok) return auth.response
+
     const body = (await req.json()) as { payment_ids?: string[] }
     const paymentIds = body.payment_ids
 
@@ -45,6 +49,8 @@ export async function POST(req: NextRequest) {
       WHERE payment_id = ANY(${existingIds})
       RETURNING payment_id
     `
+
+    await runAudited(req, auth.ctx, { action: "payroll.cycle.approved", targetType: "payroll.cycle", details: { approved: results.map(r => r.payment_id) } }, [])
 
     return withCors(req, {
       success: true,

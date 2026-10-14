@@ -4,6 +4,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -56,6 +57,9 @@ export async function OPTIONS(req: NextRequest) {
 // Creates the admin_settings table (if not exists) and seeds default values.
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "system.database.manage")
+    if (!auth.ok) return auth.response
+
     // 1. Ensure the table exists
     await sql`
       CREATE TABLE IF NOT EXISTS admin_settings (

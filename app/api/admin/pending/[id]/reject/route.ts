@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import nodemailer from "nodemailer";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,9 @@ export async function OPTIONS(req: NextRequest) {
 //  PATCH: Reject pending employee (Next.js build-safe)
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "employees.registrations.approve");
+    if (!auth.ok) return auth.response;
+
     console.log("Rejecting pending employee...");
 
     const url = new URL(req.url);
@@ -132,6 +136,13 @@ Thank you for your interest, and we wish you the best in your future endeavors.
     }
 
     //  Return success response
+    await runAudited(req, auth.ctx, {
+      action: "employees.registration.rejected",
+      targetType: "registration",
+      targetId: registrationId,
+      details: {},
+    }, []);
+
     return withCors(req, {
       success: true,
       message: `Pending employee ${registrationId} has been rejected and removed from the pending list.`,

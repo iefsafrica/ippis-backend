@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { headers } from "next/headers";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -13,6 +14,9 @@ export async function OPTIONS(req: NextRequest) {
 // PATCH — Update employee details
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     //  FIX: headers() is async in Edge Runtime
     const h = await headers();
     const employee_id = h.get("x-nextjs-param-employee_id");
@@ -61,6 +65,8 @@ export async function PATCH(req: NextRequest) {
     if (!result || result.length === 0) {
       return withCors(req, { success: false, error: "Employee not found." }, 404);
     }
+
+    await runAudited(req, auth.ctx, { action: "corehr.promotion.updated", targetType: "corehr.promotion", details: {} }, []);
 
     return withCors(req, {
       success: true,

@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { authenticate } from "@/lib/rbac";
 
 // Row types
 type EmployeesStatsRow = {
@@ -20,6 +21,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    // Any signed-in admin; figures are not yet limited to the caller's MDA
+    const auth = await authenticate(req);
+    if (!auth.ok) return auth.response;
+
     const sql = neon(process.env.DATABASE_URL || "");
 
     // Check if document_uploads table exists

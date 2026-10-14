@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -41,6 +42,9 @@ type UpdateCompanyPolicyBody = {
 // =========================
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 
@@ -82,6 +86,9 @@ export async function GET(req: NextRequest) {
 // =========================
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as CreateCompanyPolicyBody;
     const { company_code, title, content, status, publish_date, expiry_date } = body;
 
@@ -102,6 +109,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "organization.policy.created", targetType: "organization.policy", details: {} }, []);
+
     return NextResponse.json({ success: true, message: 'Company policy created successfully', data: result.at(0) });
 
   } catch (error) {
@@ -115,6 +124,9 @@ export async function POST(req: NextRequest) {
 // =========================
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as UpdateCompanyPolicyBody;
     const { id, title, content, status, publish_date, expiry_date } = body;
 
@@ -138,6 +150,8 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Company policy not found' }, { status: 404 });
     }
 
+    await runAudited(req, auth.ctx, { action: "organization.policy.updated", targetType: "organization.policy", details: {} }, []);
+
     return NextResponse.json({ success: true, message: 'Policy updated successfully', data: result.at(0) });
 
   } catch (error) {
@@ -151,6 +165,9 @@ export async function PUT(req: NextRequest) {
 // =========================
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 
@@ -162,6 +179,8 @@ export async function DELETE(req: NextRequest) {
     if (!result.length) {
       return NextResponse.json({ success: false, message: 'Company policy not found' }, { status: 404 });
     }
+
+    await runAudited(req, auth.ctx, { action: "organization.policy.deleted", targetType: "organization.policy", details: {} }, []);
 
     return NextResponse.json({ success: true, message: 'Policy deleted successfully', data: result.at(0) });
 

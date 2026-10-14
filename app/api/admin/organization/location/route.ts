@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -85,6 +86,9 @@ export async function GET(req: NextRequest) {
 // =========================
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as CreateLocationBody;
     const { name, company_code, address, city, state, country, status } = body;
 
@@ -115,6 +119,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Failed to create location' }, { status: 500 });
     }
 
+    await runAudited(req, auth.ctx, { action: "organization.location.created", targetType: "organization.location", details: {} }, []);
+
     return NextResponse.json({ success: true, message: 'Location created successfully', data: location });
 
   } catch (error) {
@@ -128,6 +134,9 @@ export async function POST(req: NextRequest) {
 // =========================
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as UpdateLocationBody;
     const { id, name, address, city, state, country, status } = body;
 
@@ -153,6 +162,8 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Location not found' }, { status: 404 });
     }
 
+    await runAudited(req, auth.ctx, { action: "organization.location.updated", targetType: "organization.location", details: {} }, []);
+
     return NextResponse.json({ success: true, message: 'Location updated successfully', data: location });
 
   } catch (error) {
@@ -166,6 +177,9 @@ export async function PUT(req: NextRequest) {
 // =========================
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 
@@ -179,6 +193,8 @@ export async function DELETE(req: NextRequest) {
     if (!location) {
       return NextResponse.json({ success: false, message: 'Location not found' }, { status: 404 });
     }
+
+    await runAudited(req, auth.ctx, { action: "organization.location.deleted", targetType: "organization.location", details: {} }, []);
 
     return NextResponse.json({ success: true, message: 'Location deleted successfully', data: location });
 

@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -61,6 +62,9 @@ export async function OPTIONS(req: NextRequest) {
 // ---------------------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "payroll.cycles.prepare")
+    if (!auth.ok) return auth.response
+
     const body = (await req.json()) as PayrollPayload & { month?: string, year?: string }
 
     if (!body.employee_id) {
@@ -127,6 +131,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `
 
+    await runAudited(req, auth.ctx, { action: "payroll.cycle.created", targetType: "payroll.cycle", details: {} }, [])
+
     return withCors(req, { 
       success: true, 
       data: result?.[0] ?? null,
@@ -144,6 +150,9 @@ export async function POST(req: NextRequest) {
 // ---------------------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "payroll.cycles.view")
+    if (!auth.ok) return auth.response
+
     const exists = await tableExists("payroll")
     if (!exists) return withCors(req, { success: false, error: "Payroll table does not exist" }, 404)
 
@@ -203,6 +212,9 @@ export async function GET(req: NextRequest) {
 // ---------------------------
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "payroll.cycles.prepare")
+    if (!auth.ok) return auth.response
+
     const body = (await req.json()) as PayrollPayload
     if (!body.id) return withCors(req, { success: false, error: "ID is required" }, 400)
 
@@ -219,6 +231,8 @@ export async function PUT(req: NextRequest) {
     `
 
     if (!result.length) return withCors(req, { success: false, error: "Not found" }, 404)
+    await runAudited(req, auth.ctx, { action: "payroll.cycle.updated", targetType: "payroll.cycle", details: {} }, [])
+
     return withCors(req, { success: true, data: result[0] })
   } catch (error: any) {
     return withCors(req, { success: false, error: error?.message || "PUT failed" }, 500)
@@ -230,12 +244,17 @@ export async function PUT(req: NextRequest) {
 // ---------------------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "payroll.cycles.prepare")
+    if (!auth.ok) return auth.response
+
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
     if (!id) return withCors(req, { success: false, error: "ID required" }, 400)
 
     const result = await sql`DELETE FROM payroll WHERE id = ${id} RETURNING *`
     if (!result.length) return withCors(req, { success: false, error: "Not found" }, 404)
+
+    await runAudited(req, auth.ctx, { action: "payroll.cycle.deleted", targetType: "payroll.cycle", details: {} }, [])
 
     return withCors(req, { success: true, message: "Deleted successfully" })
   } catch (error: any) {

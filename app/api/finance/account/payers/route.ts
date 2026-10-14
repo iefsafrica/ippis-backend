@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,9 @@ export async function OPTIONS(req: NextRequest) {
 //
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<Payer>;
 
     const {
@@ -87,6 +91,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "finance.payer.created", targetType: "finance.payer", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Payer created successfully",
@@ -106,6 +112,9 @@ export async function POST(req: NextRequest) {
 //
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
 
     const page = Number(searchParams.get("page") || "1");
@@ -181,6 +190,9 @@ export async function GET(req: NextRequest) {
 //
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<Payer>;
 
     if (!body.payer_id) {
@@ -221,6 +233,8 @@ export async function PATCH(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "finance.payer.updated", targetType: "finance.payer", details: {} }, []);
+
     return withCors(req, {
       success: true,
       data: updated?.[0] ?? null
@@ -239,6 +253,9 @@ export async function PATCH(req: NextRequest) {
 //
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const payerId = searchParams.get("payer_id");
 
@@ -252,6 +269,8 @@ export async function DELETE(req: NextRequest) {
     await db`
       DELETE FROM finance_payers WHERE payer_id = ${payerId}
     `;
+
+    await runAudited(req, auth.ctx, { action: "finance.payer.deleted", targetType: "finance.payer", details: {} }, []);
 
     return withCors(req, {
       success: true
