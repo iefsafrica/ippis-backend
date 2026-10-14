@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import Papa from "papaparse";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,9 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "employees.records.create");
+    if (!auth.ok) return auth.response;
+
     // Parse form-data
     const formData = await req.formData();
     const file = formData.get("file") as File;
@@ -135,6 +139,13 @@ export async function POST(req: NextRequest) {
       const result = (await sql.query(queryText, queryParams)) as any[];
       insertedEmployees.push(...result);
     }
+
+    await runAudited(req, auth.ctx, {
+      action: "employees.registration.imported",
+      targetType: "registration",
+      targetId: null,
+      details: { count: insertedEmployees.length },
+    }, []);
 
     return withCors(req, {
       success: true,

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { z } from "zod";
@@ -32,6 +33,9 @@ export async function OPTIONS(req: NextRequest) {
 ------------------------- */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "recruitment.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = InterviewSchema.parse(await req.json());
 
     const result = await sql`
@@ -60,6 +64,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "recruitment.interview.created", targetType: "recruitment.interview", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Interview created successfully",
@@ -80,6 +86,9 @@ export async function POST(req: NextRequest) {
 ------------------------- */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "recruitment.records.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
 
     const id = searchParams.get("id");
@@ -144,6 +153,9 @@ export async function GET(req: NextRequest) {
 ------------------------- */
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "recruitment.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -173,6 +185,8 @@ export async function PUT(req: NextRequest) {
       return withCors(req, { success: false, message: "Interview not found" }, 404);
     }
 
+    await runAudited(req, auth.ctx, { action: "recruitment.interview.updated", targetType: "recruitment.interview", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Interview updated successfully",
@@ -193,6 +207,9 @@ export async function PUT(req: NextRequest) {
 ------------------------- */
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "recruitment.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -209,6 +226,8 @@ export async function DELETE(req: NextRequest) {
     if (result.length === 0) {
       return withCors(req, { success: false, message: "Interview not found" }, 404);
     }
+
+    await runAudited(req, auth.ctx, { action: "recruitment.interview.deleted", targetType: "recruitment.interview", details: {} }, []);
 
     return withCors(req, {
       success: true,

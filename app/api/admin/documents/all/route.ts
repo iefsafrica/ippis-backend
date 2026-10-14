@@ -2,6 +2,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,9 @@ export async function OPTIONS(req: NextRequest) {
  */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "employees.documents.view");
+    if (!auth.ok) return auth.response;
+
     const rows = await sql`
       SELECT
         id as document_id,

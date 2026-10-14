@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -29,6 +30,9 @@ export async function OPTIONS(req: NextRequest) {
 // -------------------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "training.records.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -80,6 +84,9 @@ export async function GET(req: NextRequest) {
 // -------------------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "training.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as TrainingBody;
 
     const {
@@ -118,6 +125,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "training.record.created", targetType: "training.record", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Training created successfully",
@@ -143,6 +152,9 @@ export async function POST(req: NextRequest) {
 // -------------------------
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "training.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -183,6 +195,8 @@ export async function PUT(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "training.record.updated", targetType: "training.record", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: result[0]
@@ -210,6 +224,9 @@ export async function PUT(req: NextRequest) {
 // -------------------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "training.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -229,6 +246,8 @@ export async function DELETE(req: NextRequest) {
       WHERE id = ${id}
       RETURNING *
     `;
+
+    await runAudited(req, auth.ctx, { action: "training.record.deleted", targetType: "training.record", details: {} }, []);
 
     return withCors(req, {
       success: true,

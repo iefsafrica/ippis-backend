@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -31,6 +32,9 @@ export async function OPTIONS(req: NextRequest) {
 // GET (all / by id / by employee)
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.view");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
     const employee_id = req.nextUrl.searchParams.get("employee_id");
 
@@ -60,6 +64,9 @@ export async function GET(req: NextRequest) {
 // POST – Create resignation
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as Partial<ResignationPayload>;
 
     const required = [
@@ -127,6 +134,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "corehr.resignation.created", targetType: "corehr.resignation", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Employee resignation created successfully",
@@ -144,6 +153,9 @@ export async function POST(req: NextRequest) {
 // PUT – Update (pending only)
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as Partial<ResignationPayload>;
 
     if (!body.id) {
@@ -179,6 +191,8 @@ export async function PUT(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "corehr.resignation.updated", targetType: "corehr.resignation", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Resignation updated successfully",
@@ -193,6 +207,9 @@ export async function PUT(req: NextRequest) {
 // DELETE – Pending only
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
 
     if (!id) {
@@ -214,6 +231,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     await sql`DELETE FROM employee_resignations WHERE id = ${id}`;
+
+    await runAudited(req, auth.ctx, { action: "corehr.resignation.deleted", targetType: "corehr.resignation", details: {} }, []);
 
     return withCors(req, {
       success: true,

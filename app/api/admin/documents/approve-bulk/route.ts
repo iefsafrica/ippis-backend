@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -11,6 +12,9 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "employees.documents.verify");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as { registrationIds?: string[] };
     const { registrationIds } = body;
 
@@ -35,6 +39,13 @@ export async function POST(req: NextRequest) {
         error: "No documents found for the provided registration IDs."
       }, 404);
     }
+
+    await runAudited(req, auth.ctx, {
+      action: "employees.documents.bulk_approved",
+      targetType: "registration",
+      targetId: null,
+      details: { count: updated.length },
+    }, []);
 
     return withCors(req, {
       success: true,

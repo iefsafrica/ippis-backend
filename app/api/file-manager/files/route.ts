@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest, NextResponse } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import crypto from "crypto";
 import { uploadToBlob, deleteFromBlob } from "@/lib/blob-storage";
 
@@ -39,6 +40,9 @@ async function getUniqueFileName(name: string, folderId: string | null): Promise
 // ---------------- CREATE (UPLOAD) ----------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "files.records.manage");
+    if (!auth.ok) return auth.response;
+
     const formData = await req.formData();
     const file = formData.get("file") as File;
     const folderId = formData.get("folder_id") as string | null;
@@ -65,6 +69,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "files.record.created", targetType: "files.record", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "File uploaded successfully",
@@ -80,6 +86,9 @@ export async function POST(req: NextRequest) {
 // ---------------- READ ----------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "files.records.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const folderId = searchParams.get("folder_id");
 
@@ -99,6 +108,9 @@ export async function GET(req: NextRequest) {
 // ---------------- DELETE ----------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "files.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const fileId = searchParams.get("file_id");
 
@@ -116,6 +128,8 @@ export async function DELETE(req: NextRequest) {
 
     // 2. Delete from DB
     await db`DELETE FROM file_manager_files WHERE file_id = ${fileId}`;
+
+    await runAudited(req, auth.ctx, { action: "files.record.deleted", targetType: "files.record", details: {} }, []);
 
     return withCors(req, { success: true, message: "File deleted successfully" });
 

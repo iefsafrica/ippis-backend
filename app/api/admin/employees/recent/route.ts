@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,9 @@ export async function OPTIONS(req: NextRequest) {
 // GET: Fetch 10 latest active employees
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "employees.records.view");
+    if (!auth.ok) return auth.response;
+
     console.log("Fetching 10 latest active employees...");
 
     // Ensure table exists

@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -12,6 +13,9 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "files.records.approve")
+    if (!auth.ok) return auth.response
+
     const body = (await req.json()) as { file_ids?: string[] }
     const fileIds = body.file_ids
 
@@ -44,6 +48,8 @@ export async function POST(req: NextRequest) {
       WHERE file_id = ANY(${existingIds})
       RETURNING file_id
     `
+
+    await runAudited(req, auth.ctx, { action: "files.record.approved", targetType: "files.record", details: {} }, [])
 
     return withCors(req, {
       success: true,

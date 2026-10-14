@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,9 @@ export async function OPTIONS(req: NextRequest) {
 //
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<Deposit>;
 
     const {
@@ -112,6 +116,8 @@ export async function POST(req: NextRequest) {
       WHERE payer_id = ${payer_id}
     `;
 
+    await runAudited(req, auth.ctx, { action: "finance.deposit.created", targetType: "finance.deposit", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Deposit created successfully",
@@ -133,6 +139,9 @@ export async function POST(req: NextRequest) {
 //
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const depositId = searchParams.get("deposit_id");
 
@@ -208,6 +217,9 @@ export async function GET(req: NextRequest) {
 //
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<Deposit>;
 
     if (!body.deposit_id) {
@@ -258,6 +270,8 @@ export async function PATCH(req: NextRequest) {
       `;
     }
 
+    await runAudited(req, auth.ctx, { action: "finance.deposit.updated", targetType: "finance.deposit", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Deposit updated successfully",
@@ -279,6 +293,9 @@ export async function PATCH(req: NextRequest) {
 //
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const depositId = searchParams.get("deposit_id");
 
@@ -312,6 +329,8 @@ export async function DELETE(req: NextRequest) {
     await db`
       DELETE FROM finance_deposits WHERE deposit_id = ${depositId}
     `;
+
+    await runAudited(req, auth.ctx, { action: "finance.deposit.deleted", targetType: "finance.deposit", details: {} }, []);
 
     return withCors(req, {
       success: true,

@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -34,6 +35,9 @@ export async function OPTIONS(req: NextRequest) {
  */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.view");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
     const employee_id = req.nextUrl.searchParams.get("employee_id");
 
@@ -92,6 +96,9 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const rawBody = await req.text();
     if (!rawBody) {
       return withCors(req, { success: false, error: "Request body is empty" }, 400);
@@ -166,6 +173,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "corehr.termination.created", targetType: "corehr.termination", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Employee terminated successfully",
@@ -187,6 +196,9 @@ export async function POST(req: NextRequest) {
  */
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const rawBody = await req.text();
     if (!rawBody) {
       return withCors(req, { success: false, error: "Request body is empty" }, 400);
@@ -248,6 +260,8 @@ export async function PUT(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "corehr.termination.updated", targetType: "corehr.termination", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Termination updated successfully",
@@ -269,6 +283,9 @@ export async function PUT(req: NextRequest) {
  */
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
 
     if (!id) {
@@ -295,6 +312,8 @@ export async function DELETE(req: NextRequest) {
       DELETE FROM employee_terminations
       WHERE id = ${id}
     `;
+
+    await runAudited(req, auth.ctx, { action: "corehr.termination.deleted", targetType: "corehr.termination", details: {} }, []);
 
     return withCors(req, {
       success: true,

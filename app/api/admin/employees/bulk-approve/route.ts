@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -24,6 +25,9 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "employees.registrations.approve")
+    if (!auth.ok) return auth.response
+
     const body = (await req.json()) as { registration_ids?: string[] }
     const registrationIds = body.registration_ids
 
@@ -112,6 +116,13 @@ export async function POST(req: NextRequest) {
         results.failed.push({ id: registrationId, error: err.message })
       }
     }
+
+    await runAudited(req, auth.ctx, {
+      action: "employees.registration.bulk_approved",
+      targetType: "registration",
+      targetId: null,
+      details: { approved: results.success, failed: results.failed },
+    }, [])
 
     return withCors(req, {
       success: true,

@@ -1,5 +1,6 @@
 import { put } from "@vercel/blob";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { withCors, handleOptions } from "@/lib/cors";
 
 export async function OPTIONS(req: NextRequest) {
@@ -8,6 +9,9 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     const formData = await req.formData();
     const file = formData.get("file") as File;
 
@@ -25,6 +29,8 @@ export async function POST(req: NextRequest) {
         access: "public",
       }
     );
+
+    await runAudited(req, auth.ctx, { action: "corehr.upload.created", targetType: "corehr.upload", details: {} }, []);
 
     return withCors(req, {
       success: true,

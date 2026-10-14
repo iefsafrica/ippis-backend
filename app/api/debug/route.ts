@@ -1,10 +1,15 @@
 import { neon } from "@neondatabase/serverless";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    // Exposes table structure and sample registration ids
+    const auth = await requirePermission(req, "system.database.manage");
+    if (!auth.ok) return auth.response;
+
     const db = neon(process.env.DATABASE_URL!);
     
     // Check which tables have registration_id

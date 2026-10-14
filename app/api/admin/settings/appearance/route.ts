@@ -2,6 +2,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -61,11 +62,14 @@ export async function GET(req: NextRequest) {
 }
 
 // ─── PUT /api/admin/settings/appearance ────────────────────────────────────────
-// Body: { systemTheme?, primaryColor?, secondaryColor?, fontFamily?, updatedBy? }
+// Body: { systemTheme?, primaryColor?, secondaryColor?, fontFamily? }
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "settings.system.manage")
+    if (!auth.ok) return auth.response
+
     const body = await req.json() as any
-    const { systemTheme, primaryColor, secondaryColor, fontFamily, updatedBy } = body
+    const { systemTheme, primaryColor, secondaryColor, fontFamily } = body
 
     const updates: { key: string; value: string }[] = []
     const errors: string[] = []
@@ -114,7 +118,8 @@ export async function PUT(req: NextRequest) {
       return withCors(req, { success: false, error: "No valid fields provided for update." }, 400)
     }
 
-    const updatedByValue = updatedBy ? String(updatedBy).trim() : "system"
+    // Attribution comes from the session, not the request body
+    const updatedByValue = auth.ctx.user.username
     const now = new Date().toISOString()
 
     for (const { key, value } of updates) {
@@ -130,6 +135,13 @@ export async function PUT(req: NextRequest) {
     `
     const result: Record<string, string> = {}
     for (const row of refreshed) result[row.key] = row.value
+
+    await runAudited(req, auth.ctx, {
+      action: "settings.system.updated",
+      targetType: "settings",
+      targetId: "appearance",
+      details: { keys: updates.map((u) => u.key) },
+    }, [])
 
     return withCors(req, {
       success: true,

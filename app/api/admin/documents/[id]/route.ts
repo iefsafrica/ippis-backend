@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 const sql = neon(process.env.DATABASE_URL!)
@@ -11,8 +12,11 @@ export async function OPTIONS(req: Request) {
 }
 
 // GET /api/admin/documents/[id]
-export async function GET(req: Request, context: any) {
+export async function GET(req: NextRequest, context: any) {
   try {
+    const auth = await requirePermission(req, "employees.documents.view")
+    if (!auth.ok) return auth.response
+
     const registrationId = context.params?.id
 
     if (!registrationId) {

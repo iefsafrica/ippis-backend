@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { withCors, handleOptions } from "@/lib/cors";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +40,9 @@ export async function OPTIONS(req: NextRequest) {
 ========================= */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -85,6 +89,9 @@ export async function GET(req: NextRequest) {
 ========================= */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.manage");
+    if (!auth.ok) return auth.response;
+
     let body: CreateIndicatorBody;
 
     try {
@@ -114,6 +121,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "performance.indicator.created", targetType: "performance.indicator", details: {} }, []);
+
     return withCors(
       req,
       {
@@ -135,6 +144,9 @@ export async function POST(req: NextRequest) {
 ========================= */
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.manage");
+    if (!auth.ok) return auth.response;
+
     let body: UpdateIndicatorBody;
 
     try {
@@ -173,6 +185,8 @@ export async function PUT(req: NextRequest) {
       return withCors(req, { success: false, error: "Indicator not found" }, 404);
     }
 
+    await runAudited(req, auth.ctx, { action: "performance.indicator.updated", targetType: "performance.indicator", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Indicator updated successfully",
@@ -190,6 +204,9 @@ export async function PUT(req: NextRequest) {
 ========================= */
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.manage");
+    if (!auth.ok) return auth.response;
+
     let body: { id?: number };
 
     try {
@@ -213,6 +230,8 @@ export async function DELETE(req: NextRequest) {
     if (!deleted.length) {
       return withCors(req, { success: false, error: "Indicator not found" }, 404);
     }
+
+    await runAudited(req, auth.ctx, { action: "performance.indicator.deleted", targetType: "performance.indicator", details: {} }, []);
 
     return withCors(req, {
       success: true,

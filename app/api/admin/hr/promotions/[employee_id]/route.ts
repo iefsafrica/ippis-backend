@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -13,6 +14,9 @@ export async function OPTIONS(req: NextRequest) {
 // GET employee details by ID
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.view");
+    if (!auth.ok) return auth.response;
+
     const { employee_id } = req.nextUrl.pathname.split("/").slice(-1)[0] 
       ? { employee_id: req.nextUrl.pathname.split("/").slice(-1)[0] } 
       : {};

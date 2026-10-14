@@ -3,6 +3,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -18,6 +19,10 @@ export async function OPTIONS(req: NextRequest) {
 // Optional query param: ?category=general|notifications|email|appearance|advanced
 export async function GET(req: NextRequest) {
   try {
+    // Lists every setting unmasked, including the SMTP password
+    const auth = await requirePermission(req, "settings.system.manage")
+    if (!auth.ok) return auth.response
+
     const { searchParams } = new URL(req.url)
     const category = searchParams.get("category")
 

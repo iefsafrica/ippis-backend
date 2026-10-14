@@ -3,10 +3,14 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
 const sql = neon(process.env.DATABASE_URL!)
+
+// Backups hold every table they cover, including admin accounts
+const DB_ADMIN = "system.database.manage"
 
 // Tables that are safe to restore (order matters for FK constraints)
 const RESTORABLE_TABLES = ["admin_settings", "admin_permissions"]
@@ -25,9 +29,12 @@ export async function OPTIONS(req: NextRequest) {
 }
 
 // ─── POST /api/admin/backup/[id]/restore ──────────────────────────────────────
-// Body: { tables?: string[], restoredBy?: string, confirmRestore: true }
+// Body: { tables?: string[], confirmRestore: true }
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, DB_ADMIN)
+    if (!auth.ok) return auth.response
+
     const id = getBackupId(req)
 
     if (!id) {
@@ -35,7 +42,9 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json() as any
-    const { tables, restoredBy = "system", confirmRestore } = body
+    const { tables, confirmRestore } = body
+    // Attribution comes from the session, not the request body
+    const restoredBy = auth.ctx.user.username
 
     // Safety gate — require explicit confirmation
     if (!confirmRestore) {
@@ -120,6 +129,13 @@ export async function POST(req: NextRequest) {
       SET restored_at = ${new Date().toISOString()}, restored_by = ${String(restoredBy)}
       WHERE id = ${id}
     `
+
+    await runAudited(req, auth.ctx, {
+      action: "system.backup.restored",
+      targetType: "backup",
+      targetId: id,
+      details: { name: backup.backup_name, restored, skipped },
+    }, [])
 
     return withCors(req, {
       success: true,

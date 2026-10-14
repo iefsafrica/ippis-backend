@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,9 @@ export async function OPTIONS(req: NextRequest) {
 // ---------------------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as TaskPayload;
 
     if (!body.name || !body.project_id || !body.assigned_to) {
@@ -114,6 +118,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "projects.task.created", targetType: "projects.task", details: {} }, []);
+
     return withCors(req, { success: true, message: "Task created successfully", data: result?.[0] ?? null });
   } catch (error: any) {
     return withCors(req, { success: false, error: error?.message || "POST failed" }, 500);
@@ -126,6 +132,9 @@ export async function POST(req: NextRequest) {
 // ---------------------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.view");
+    if (!auth.ok) return auth.response;
+
     const exists = await tableExists("tasks");
     if (!exists) return withCors(req, { success: false, error: "Tasks table does not exist" }, 404);
 
@@ -178,6 +187,9 @@ export async function GET(req: NextRequest) {
 // ---------------------------
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as TaskPayload;
     if (!body.id) return withCors(req, { success: false, error: "ID is required" }, 400);
 
@@ -205,6 +217,8 @@ export async function PUT(req: NextRequest) {
     `;
 
     if (!result.length) return withCors(req, { success: false, error: "Not found" }, 404);
+    await runAudited(req, auth.ctx, { action: "projects.task.updated", targetType: "projects.task", details: {} }, []);
+
     return withCors(req, { success: true, message: "Task updated successfully", data: result[0] });
   } catch (error: any) {
     return withCors(req, { success: false, error: error?.message || "PUT failed" }, 500);
@@ -216,12 +230,17 @@ export async function PUT(req: NextRequest) {
 // ---------------------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return withCors(req, { success: false, error: "ID required" }, 400);
 
     const result = await sql`DELETE FROM tasks WHERE id = ${id} RETURNING *`;
     if (!result.length) return withCors(req, { success: false, error: "Not found" }, 404);
+
+    await runAudited(req, auth.ctx, { action: "projects.task.deleted", targetType: "projects.task", details: {} }, []);
 
     return withCors(req, { success: true, message: "Task deleted successfully" });
   } catch (error: any) {

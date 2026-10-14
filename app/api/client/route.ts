@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,9 @@ export async function OPTIONS(req: NextRequest) {
 // ---------------------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as ClientPayload;
 
     if (!body.name || !body.contact_person) {
@@ -84,6 +88,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "projects.client.created", targetType: "projects.client", details: {} }, []);
+
     return withCors(req, { success: true, message: "Client created successfully", data: result?.[0] ?? null });
   } catch (error: any) {
     return withCors(req, { success: false, error: error?.message || "POST failed" }, 500);
@@ -96,6 +102,9 @@ export async function POST(req: NextRequest) {
 // ---------------------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.view");
+    if (!auth.ok) return auth.response;
+
     const exists = await tableExists("clients");
     if (!exists) return withCors(req, { success: false, error: "Clients table does not exist" }, 404);
 
@@ -139,6 +148,9 @@ export async function GET(req: NextRequest) {
 // ---------------------------
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as ClientPayload;
     if (!body.id) return withCors(req, { success: false, error: "ID is required" }, 400);
 
@@ -155,6 +167,8 @@ export async function PUT(req: NextRequest) {
 
     if (!result.length) return withCors(req, { success: false, error: "Client not found" }, 404);
 
+    await runAudited(req, auth.ctx, { action: "projects.client.updated", targetType: "projects.client", details: {} }, []);
+
     return withCors(req, { success: true, message: "Client updated successfully", data: result[0] });
   } catch (error: any) {
     return withCors(req, { success: false, error: error?.message || "PUT failed" }, 500);
@@ -166,12 +180,17 @@ export async function PUT(req: NextRequest) {
 // ---------------------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "projects.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return withCors(req, { success: false, error: "ID required" }, 400);
 
     const result = await sql`DELETE FROM clients WHERE id = ${id} RETURNING *`;
     if (!result.length) return withCors(req, { success: false, error: "Client not found" }, 404);
+
+    await runAudited(req, auth.ctx, { action: "projects.client.deleted", targetType: "projects.client", details: {} }, []);
 
     return withCors(req, { success: true, message: "Client deleted successfully" });
   } catch (error: any) {

@@ -4,10 +4,14 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
 const sql = neon(process.env.DATABASE_URL!)
+
+// Backups hold every table they cover, including admin accounts
+const DB_ADMIN = "system.database.manage"
 
 // Helper: extract the backup ID from the URL path
 // Path: /api/admin/backup/[id]
@@ -25,6 +29,9 @@ export async function OPTIONS(req: NextRequest) {
 // ─── GET /api/admin/backup/[id] ───────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, DB_ADMIN)
+    if (!auth.ok) return auth.response
+
     const id = getBackupId(req)
 
     if (!id) {
@@ -65,6 +72,9 @@ export async function GET(req: NextRequest) {
 // ─── DELETE /api/admin/backup/[id] ────────────────────────────────────────────
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, DB_ADMIN)
+    if (!auth.ok) return auth.response
+
     const id = getBackupId(req)
 
     if (!id) {
@@ -81,6 +91,13 @@ export async function DELETE(req: NextRequest) {
     if (!deletedBackup) {
       return withCors(req, { success: false, error: `Backup with id '${id}' not found.` }, 404)
     }
+
+    await runAudited(req, auth.ctx, {
+      action: "system.backup.deleted",
+      targetType: "backup",
+      targetId: deletedBackup.id,
+      details: { name: deletedBackup.backup_name },
+    }, [])
 
     return withCors(req, {
       success: true,

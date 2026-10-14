@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -49,6 +50,9 @@ export async function OPTIONS(req: NextRequest) {
 // -------------------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const idParam = searchParams.get("id"); // attendance ID
     const employee_code = searchParams.get("employee_code");
@@ -81,6 +85,9 @@ export async function GET(req: NextRequest) {
 // -------------------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as CreateAttendanceBody;
     const { employee_code, attendance_date, clock_in, clock_out, status, notes } = body;
 
@@ -131,6 +138,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "timesheets.attendance.created", targetType: "timesheets.attendance", details: {} }, []);
+
     return withCors(req, { success: true, data: result[0] });
   } catch (error: any) {
     console.error("Attendance POST error:", error);
@@ -146,6 +155,9 @@ export async function POST(req: NextRequest) {
 // -------------------------
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as UpdateAttendanceBody;
     const { id, clock_in, clock_out, status, notes } = body;
 
@@ -164,6 +176,8 @@ export async function PUT(req: NextRequest) {
 
     if (!result.length) return withCors(req, { success: false, message: "Attendance not found" }, 404);
 
+    await runAudited(req, auth.ctx, { action: "timesheets.attendance.updated", targetType: "timesheets.attendance", details: {} }, []);
+
     return withCors(req, { success: true, data: result[0] });
   } catch (error) {
     console.error("Attendance PUT error:", error);
@@ -176,6 +190,9 @@ export async function PUT(req: NextRequest) {
 // -------------------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -188,6 +205,8 @@ export async function DELETE(req: NextRequest) {
     `;
 
     if (!result.length) return withCors(req, { success: false, message: "Attendance not found" }, 404);
+
+    await runAudited(req, auth.ctx, { action: "timesheets.attendance.deleted", targetType: "timesheets.attendance", details: {} }, []);
 
     return withCors(req, { success: true, message: "Attendance deleted successfully", data: result[0] });
   } catch (error) {

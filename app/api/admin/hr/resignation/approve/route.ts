@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -13,6 +14,9 @@ export async function OPTIONS(req: NextRequest) {
 // PUT – Approve resignation
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.approve");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as {
       id?: number;
       approved_by?: string;
@@ -86,6 +90,8 @@ export async function PUT(req: NextRequest) {
         updated_at = NOW()
       WHERE id = ${approved[0].employee_id}
     `;
+
+    await runAudited(req, auth.ctx, { action: "corehr.resignation.approved", targetType: "corehr.resignation", details: {} }, []);
 
     return withCors(req, {
       success: true,

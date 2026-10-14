@@ -2,6 +2,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -18,6 +19,9 @@ export async function OPTIONS(req: NextRequest) {
 // Returns all notification settings as a clean object
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "settings.system.view")
+    if (!auth.ok) return auth.response
+
     const rows = await sql`
       SELECT key, value, data_type, updated_at, updated_by
       FROM admin_settings
@@ -56,11 +60,14 @@ export async function GET(req: NextRequest) {
 }
 
 // ─── PUT /api/admin/settings/notifications ─────────────────────────────────────
-// Body: { emailNotifications?: boolean, systemNotifications?: boolean, notificationFrequency?: string, updatedBy?: string }
+// Body: { emailNotifications?: boolean, systemNotifications?: boolean, notificationFrequency?: string }
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "settings.system.manage")
+    if (!auth.ok) return auth.response
+
     const body = await req.json() as any
-    const { emailNotifications, systemNotifications, notificationFrequency, updatedBy } = body
+    const { emailNotifications, systemNotifications, notificationFrequency } = body
 
     const updates: { key: string; value: string }[] = []
     const errors: string[] = []
@@ -98,7 +105,8 @@ export async function PUT(req: NextRequest) {
       return withCors(req, { success: false, error: "No valid fields provided for update." }, 400)
     }
 
-    const updatedByValue = updatedBy ? String(updatedBy).trim() : "system"
+    // Attribution comes from the session, not the request body
+    const updatedByValue = auth.ctx.user.username
     const now = new Date().toISOString()
 
     for (const { key, value } of updates) {
@@ -115,6 +123,13 @@ export async function PUT(req: NextRequest) {
     `
     const result: Record<string, string> = {}
     for (const row of refreshed) result[row.key] = row.value
+
+    await runAudited(req, auth.ctx, {
+      action: "settings.system.updated",
+      targetType: "settings",
+      targetId: "notifications",
+      details: { keys: updates.map((u) => u.key) },
+    }, [])
 
     return withCors(req, {
       success: true,

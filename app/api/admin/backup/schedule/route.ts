@@ -4,10 +4,14 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
 const sql = neon(process.env.DATABASE_URL!)
+
+// Backups hold every table they cover, including admin accounts
+const DB_ADMIN = "system.database.manage"
 
 const VALID_FREQUENCIES = ["disabled", "daily", "weekly", "monthly"]
 const VALID_DAYS        = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -23,6 +27,9 @@ export async function OPTIONS(req: NextRequest) {
 // Returns the current backup schedule from admin_settings
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, DB_ADMIN)
+    if (!auth.ok) return auth.response
+
     const rows = await sql`
       SELECT key, value FROM admin_settings
       WHERE key IN (
@@ -67,15 +74,20 @@ export async function GET(req: NextRequest) {
 
 // ─── POST /api/admin/backup/schedule ──────────────────────────────────────────
 // Saves the backup schedule into admin_settings
-// Body: { enabled?, frequency?, day?, time?, backupType?, location?, retentionDays?, encryption?, compression?, updatedBy? }
+// Body: { enabled?, frequency?, day?, time?, backupType?, location?, retentionDays?, encryption?, compression? }
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, DB_ADMIN)
+    if (!auth.ok) return auth.response
+
     const body = await req.json() as any
     const {
       enabled, frequency, day, time,
       backupType, location, retentionDays,
-      encryption, compression, updatedBy = "system",
+      encryption, compression,
     } = body
+    // Attribution comes from the session, not the request body
+    const updatedBy = auth.ctx.user.username
 
     const updates: { key: string; value: string }[] = []
     const errors: string[] = []
@@ -159,6 +171,13 @@ export async function POST(req: NextRequest) {
               updated_at = EXCLUDED.updated_at
       `
     }
+
+    await runAudited(req, auth.ctx, {
+      action: "system.backup.schedule_changed",
+      targetType: "settings",
+      targetId: "backup_schedule",
+      details: { updated: updates },
+    }, [])
 
     return withCors(req, {
       success: true,

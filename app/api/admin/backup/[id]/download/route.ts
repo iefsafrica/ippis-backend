@@ -2,10 +2,14 @@
 // GET → download a backup as a JSON file
 import { neon } from "@neondatabase/serverless"
 import { NextRequest, NextResponse } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
 const sql = neon(process.env.DATABASE_URL!)
+
+// Backups hold every table they cover, including admin accounts
+const DB_ADMIN = "system.database.manage"
 
 // Helper: extract the backup ID from the URL path
 // Path: /api/admin/backup/[id]/download
@@ -31,6 +35,9 @@ export async function OPTIONS() {
 // Streams the backup as a downloadable JSON file
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, DB_ADMIN)
+    if (!auth.ok) return auth.response
+
     const id = getBackupId(req)
 
     if (!id) {
@@ -83,6 +90,13 @@ export async function GET(req: NextRequest) {
       .toLowerCase()
 
     const jsonContent = JSON.stringify(downloadPayload, null, 2)
+
+    await runAudited(req, auth.ctx, {
+      action: "system.backup.downloaded",
+      targetType: "backup",
+      targetId: backup.id,
+      details: { name: backup.backup_name },
+    }, [])
 
     return new NextResponse(jsonContent, {
       status: 200,

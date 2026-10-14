@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -16,6 +17,9 @@ export async function OPTIONS(req: NextRequest) {
 // -------------------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "training.records.view");
+    if (!auth.ok) return auth.response;
+
     // Fetch training types with details
     const result = await sql`
       SELECT

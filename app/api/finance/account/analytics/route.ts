@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,9 @@ export async function OPTIONS(req: NextRequest) {
 // ----------------- ANALYTICS -----------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.view");
+    if (!auth.ok) return auth.response;
+
     // ---------------- TOTAL CURRENT BALANCE ----------------
     const totalRes = await db`
       SELECT COALESCE(SUM(balance),0) as total FROM finance_accounts

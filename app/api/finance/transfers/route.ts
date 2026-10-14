@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,9 @@ export async function OPTIONS(req: NextRequest) {
 // ---------------- CREATE ----------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<Transfer>;
 
     const {
@@ -107,6 +111,8 @@ export async function POST(req: NextRequest) {
       WHERE account_id = ${to_account_id}
     `;
 
+    await runAudited(req, auth.ctx, { action: "finance.transfer.created", targetType: "finance.transfer", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Transfer processed successfully",
@@ -125,6 +131,9 @@ export async function POST(req: NextRequest) {
 // ---------------- READ ----------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const transferId = searchParams.get("transfer_id");
 
@@ -189,6 +198,9 @@ export async function GET(req: NextRequest) {
 // ---------------- UPDATE ----------------
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = await req.json() as Partial<Transfer> & { transfer_id: string };
 
     if (!body.transfer_id) {
@@ -245,6 +257,8 @@ export async function PATCH(req: NextRequest) {
     await db`UPDATE finance_accounts SET balance = balance - ${newTotal} WHERE account_id = ${newFromId}`;
     await db`UPDATE finance_accounts SET balance = balance + ${newAmount} WHERE account_id = ${newToId}`;
 
+    await runAudited(req, auth.ctx, { action: "finance.transfer.updated", targetType: "finance.transfer", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Transfer updated successfully",
@@ -263,6 +277,9 @@ export async function PATCH(req: NextRequest) {
 // ---------------- DELETE ----------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const transferId = searchParams.get("transfer_id");
 
@@ -283,6 +300,8 @@ export async function DELETE(req: NextRequest) {
     await db`UPDATE finance_accounts SET balance = balance - ${Number(t.amount)} WHERE account_id = ${t.to_account_id}`;
 
     await db`DELETE FROM finance_transfers WHERE transfer_id = ${transferId}`;
+
+    await runAudited(req, auth.ctx, { action: "finance.transfer.deleted", targetType: "finance.transfer", details: {} }, []);
 
     return withCors(req, {
       success: true,

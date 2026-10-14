@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -60,6 +61,9 @@ export async function OPTIONS(req: NextRequest) {
 // GET: List all pending employees
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "employees.registrations.view")
+    if (!auth.ok) return auth.response
+
     console.log(" Fetching all pending employees...")
 
     const { searchParams } = new URL(req.url)

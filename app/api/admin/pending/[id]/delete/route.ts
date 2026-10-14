@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -32,6 +33,9 @@ export async function OPTIONS(req: NextRequest) {
 // DELETE: Remove a pending employee
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "employees.records.delete")
+    if (!auth.ok) return auth.response
+
     // 1️⃣ Extract registration ID from URL
     const url = new URL(req.url)
     const pathParts = url.pathname.split("/")
@@ -64,6 +68,13 @@ export async function DELETE(req: NextRequest) {
     await sql`DELETE FROM pending_employees WHERE registration_id = ${registrationId}`
 
     // 5️⃣ Return success response
+    await runAudited(req, auth.ctx, {
+      action: "employees.registration.deleted",
+      targetType: "registration",
+      targetId: registrationId,
+      details: {},
+    }, [])
+
     return withCors(req, {
       success: true,
       message: `Pending employee ${registrationId} has been deleted successfully.`,

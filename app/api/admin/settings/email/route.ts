@@ -2,6 +2,7 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
@@ -18,6 +19,9 @@ export async function OPTIONS(req: NextRequest) {
 // Returns all email/SMTP settings (passwords are masked)
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "settings.system.view")
+    if (!auth.ok) return auth.response
+
     const rows = await sql`
       SELECT key, value, data_type, updated_at, updated_by
       FROM admin_settings
@@ -63,13 +67,16 @@ export async function GET(req: NextRequest) {
 }
 
 // ─── PUT /api/admin/settings/email ─────────────────────────────────────────────
-// Body: { emailServer?, emailPort?, emailUsername?, emailPassword?, emailFrom?, emailReplyTo?, emailTemplate?, updatedBy? }
+// Body: { emailServer?, emailPort?, emailUsername?, emailPassword?, emailFrom?, emailReplyTo?, emailTemplate? }
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "settings.system.manage")
+    if (!auth.ok) return auth.response
+
     const body = await req.json() as any
     const {
       emailServer, emailPort, emailUsername, emailPassword,
-      emailFrom, emailReplyTo, emailTemplate, updatedBy,
+      emailFrom, emailReplyTo, emailTemplate,
     } = body
 
     const updates: { key: string; value: string }[] = []
@@ -135,7 +142,8 @@ export async function PUT(req: NextRequest) {
       return withCors(req, { success: false, error: "No valid fields provided for update." }, 400)
     }
 
-    const updatedByValue = updatedBy ? String(updatedBy).trim() : "system"
+    // Attribution comes from the session, not the request body
+    const updatedByValue = auth.ctx.user.username
     const now = new Date().toISOString()
 
     for (const { key, value } of updates) {
@@ -152,6 +160,14 @@ export async function PUT(req: NextRequest) {
     `
     const result: Record<string, string> = {}
     for (const row of refreshed) result[row.key] = row.value
+
+    // Keys only: values can include the SMTP password
+    await runAudited(req, auth.ctx, {
+      action: "settings.system.updated",
+      targetType: "settings",
+      targetId: "email",
+      details: { keys: updates.map((u) => u.key) },
+    }, [])
 
     return withCors(req, {
       success: true,

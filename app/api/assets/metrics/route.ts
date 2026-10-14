@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,9 @@ export async function OPTIONS(req: NextRequest) {
 // ---------------- GET METRICS ----------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "assets.records.view");
+    if (!auth.ok) return auth.response;
+
     // 1. Total Assets
     const totalAssetsRes = await db`SELECT COUNT(*) FROM assets`;
     const totalAssets = Number(totalAssetsRes?.[0]?.count ?? 0);

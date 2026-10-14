@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -32,6 +33,9 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.view");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -74,6 +78,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as ShiftBody;
 
     const {
@@ -117,6 +124,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "timesheets.shift.created", targetType: "timesheets.shift", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Shift created successfully",
@@ -140,6 +149,9 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as ShiftBody;
 
     const {
@@ -174,6 +186,8 @@ export async function PUT(req: NextRequest) {
       return withCors(req, { success: false, message: "Shift not found" }, 404);
     }
 
+    await runAudited(req, auth.ctx, { action: "timesheets.shift.updated", targetType: "timesheets.shift", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Shift updated successfully",
@@ -197,6 +211,9 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -213,6 +230,8 @@ export async function DELETE(req: NextRequest) {
     if (!result.length) {
       return withCors(req, { success: false, message: "Shift not found" }, 404);
     }
+
+    await runAudited(req, auth.ctx, { action: "timesheets.shift.deleted", targetType: "timesheets.shift", details: {} }, []);
 
     return withCors(req, {
       success: true,

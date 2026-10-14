@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -32,6 +33,9 @@ export async function OPTIONS(req: NextRequest) {
 /* -------------------- GET -------------------- */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "calendar.events.view");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
     const department = req.nextUrl.searchParams.get("department");
 
@@ -72,6 +76,9 @@ export async function GET(req: NextRequest) {
 /* -------------------- POST -------------------- */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "calendar.events.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as EventPayload;
 
     const {
@@ -159,6 +166,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "calendar.event.created", targetType: "calendar.event", details: {} }, []);
+
     return withCors(
       req,
       {
@@ -185,6 +194,9 @@ export async function POST(req: NextRequest) {
 /* -------------------- PUT -------------------- */
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "calendar.events.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as Partial<EventPayload>;
     const { id } = body;
 
@@ -243,6 +255,8 @@ export async function PUT(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "calendar.event.updated", targetType: "calendar.event", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Event updated successfully",
@@ -265,6 +279,9 @@ export async function PUT(req: NextRequest) {
 /* -------------------- DELETE -------------------- */
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "calendar.events.manage");
+    if (!auth.ok) return auth.response;
+
     const id = req.nextUrl.searchParams.get("id");
 
     if (!id) {
@@ -278,6 +295,8 @@ export async function DELETE(req: NextRequest) {
     await sql`
       DELETE FROM hr_events WHERE id = ${id}
     `;
+
+    await runAudited(req, auth.ctx, { action: "calendar.event.deleted", targetType: "calendar.event", details: {} }, []);
 
     return withCors(req, {
       success: true,

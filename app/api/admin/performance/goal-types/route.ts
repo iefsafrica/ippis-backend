@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,9 @@ export async function OPTIONS(req: NextRequest) {
    ========================= */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.view");
+    if (!auth.ok) return auth.response;
+
     const exists = await tableExists("goal_types");
     if (!exists)
       return withCors(req, { success: false, error: "'goal_types' table does not exist" }, 404);
@@ -76,6 +80,9 @@ export async function GET(req: NextRequest) {
    ========================= */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.manage");
+    if (!auth.ok) return auth.response;
+
     let body: { goal_type?: string; description?: string; status?: string } = {};
 
     try {
@@ -98,6 +105,8 @@ export async function POST(req: NextRequest) {
       VALUES (${goal_type}, ${description}, ${status}, NOW())
       RETURNING *
     `;
+
+    await runAudited(req, auth.ctx, { action: "performance.goal_type.created", targetType: "performance.goal_type", details: {} }, []);
 
     return withCors(
       req,
@@ -128,6 +137,9 @@ export async function POST(req: NextRequest) {
    ========================= */
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.manage");
+    if (!auth.ok) return auth.response;
+
     let body: {
       id?: string;
       goal_type?: string;
@@ -170,6 +182,8 @@ export async function PUT(req: NextRequest) {
     if (!updated.length)
       return withCors(req, { success: false, error: "Goal type not found" }, 404);
 
+    await runAudited(req, auth.ctx, { action: "performance.goal_type.updated", targetType: "performance.goal_type", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Goal type updated successfully",
@@ -195,6 +209,9 @@ export async function PUT(req: NextRequest) {
    ========================= */
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "performance.records.manage");
+    if (!auth.ok) return auth.response;
+
     let body: { id?: string } = {};
 
     try {
@@ -225,6 +242,8 @@ export async function DELETE(req: NextRequest) {
 
     if (!deleted.length)
       return withCors(req, { success: false, error: "Goal type not found" }, 404);
+
+    await runAudited(req, auth.ctx, { action: "performance.goal_type.deleted", targetType: "performance.goal_type", details: {} }, []);
 
     return withCors(req, {
       success: true,

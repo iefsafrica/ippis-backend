@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -46,6 +47,9 @@ export async function OPTIONS(req: NextRequest) {
 // ---------------------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as TaxPayload;
 
     if (!body.name || body.rate == null) {
@@ -73,6 +77,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "finance.tax_type.created", targetType: "finance.tax_type", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Tax type created successfully",
@@ -88,6 +94,9 @@ export async function POST(req: NextRequest) {
 // ---------------------------
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.view");
+    if (!auth.ok) return auth.response;
+
     const exists = await tableExists("tax_types");
     if (!exists) return withCors(req, { success: false, error: "Table not found" }, 404);
 
@@ -118,6 +127,9 @@ export async function GET(req: NextRequest) {
 // ---------------------------
 export async function PUT(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const body = (await req.json()) as TaxPayload;
 
     if (!body.id) {
@@ -138,6 +150,8 @@ export async function PUT(req: NextRequest) {
       return withCors(req, { success: false, error: "Not found" }, 404);
     }
 
+    await runAudited(req, auth.ctx, { action: "finance.tax_type.updated", targetType: "finance.tax_type", details: {} }, []);
+
     return withCors(req, {
       success: true,
       message: "Tax type updated successfully",
@@ -153,6 +167,9 @@ export async function PUT(req: NextRequest) {
 // ---------------------------
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "finance.records.manage");
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -168,6 +185,8 @@ export async function DELETE(req: NextRequest) {
     if (!result.length) {
       return withCors(req, { success: false, error: "Not found" }, 404);
     }
+
+    await runAudited(req, auth.ctx, { action: "finance.tax_type.deleted", targetType: "finance.tax_type", details: {} }, []);
 
     return withCors(req, {
       success: true,

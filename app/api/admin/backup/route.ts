@@ -3,10 +3,14 @@
 import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors"
 import { NextRequest } from "next/server"
+import { requirePermission, runAudited } from "@/lib/rbac"
 
 export const dynamic = "force-dynamic"
 
 const sql = neon(process.env.DATABASE_URL!)
+
+// Backups hold every table they cover, including admin accounts
+const DB_ADMIN = "system.database.manage"
 const VALID_BACKUP_TYPES = ["full", "partial"]
 const VALID_LOCATIONS = ["local", "cloud"]
 const VALID_COMPRESSIONS = ["none", "low", "medium", "high"]
@@ -31,6 +35,9 @@ export async function OPTIONS(req: NextRequest) {
 // Returns the list of recent backups (History)
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, DB_ADMIN)
+    if (!auth.ok) return auth.response
+
     const { searchParams } = new URL(req.url)
     const limit = parseInt(searchParams.get("limit") || "20")
     const offset = parseInt(searchParams.get("offset") || "0")
@@ -68,6 +75,9 @@ export async function GET(req: NextRequest) {
 // Triggers a new manual backup
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, DB_ADMIN)
+    if (!auth.ok) return auth.response
+
     const body = await req.json() as any
     const {
       backupName,
@@ -75,8 +85,9 @@ export async function POST(req: NextRequest) {
       location = "local",
       compression = "none",
       encryption = "none",
-      createdBy = "System Admin"
     } = body
+    // Attribution comes from the session, not the request body
+    const createdBy = auth.ctx.user.username
 
     // Validation
     if (!VALID_BACKUP_TYPES.includes(backupType)) {
@@ -137,6 +148,13 @@ export async function POST(req: NextRequest) {
         completed_at = CURRENT_TIMESTAMP
       WHERE id = ${backupId}
     `
+
+    await runAudited(req, auth.ctx, {
+      action: "system.backup.created",
+      targetType: "backup",
+      targetId: backupId,
+      details: { name, backupType, tables: tablesToBackup },
+    }, [])
 
     return withCors(req, {
       success: true,

@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,9 @@ export async function OPTIONS(req: NextRequest) {
 // POST: Add a new employee promotion
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "corehr.records.manage");
+    if (!auth.ok) return auth.response;
+
     // Safe JSON parsing
     let body: {
       employee_id?: string;
@@ -92,6 +96,8 @@ export async function POST(req: NextRequest) {
     `;
 
     const promotion = inserted[0];
+
+    await runAudited(req, auth.ctx, { action: "corehr.promotion.created", targetType: "corehr.promotion", details: {} }, []);
 
     return withCors(req, {
       success: true,

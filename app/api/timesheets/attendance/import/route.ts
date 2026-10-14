@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import Papa from "papaparse";
@@ -17,6 +18,9 @@ export async function OPTIONS(req: NextRequest) {
 // -------------------------
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.attendance.manage");
+    if (!auth.ok) return auth.response;
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
@@ -100,6 +104,8 @@ export async function POST(req: NextRequest) {
 
       imported++;
     }
+
+    await runAudited(req, auth.ctx, { action: "timesheets.attendance.imported", targetType: "timesheets.attendance", details: {} }, []);
 
     return withCors(req, { success: true, imported, skipped, errors });
   } catch (error) {

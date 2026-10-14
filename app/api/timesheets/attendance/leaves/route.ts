@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -46,6 +47,9 @@ GET Leaves
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requirePermission(req, "timesheets.leaves.view");
+    if (!auth.ok) return auth.response;
+
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
@@ -102,6 +106,9 @@ POST Create Leave
 export async function POST(req: NextRequest) {
 
   try {
+    const auth = await requirePermission(req, "timesheets.leaves.manage");
+    if (!auth.ok) return auth.response;
+
 
     const body = (await req.json()) as CreateLeaveBody;
 
@@ -186,6 +193,8 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
 
+    await runAudited(req, auth.ctx, { action: "timesheets.leave.created", targetType: "timesheets.leave", details: {} }, []);
+
     return withCors(req,{
       success:true,
       message:"Leave created successfully",
@@ -211,6 +220,9 @@ PUT Update Leave
 export async function PUT(req: NextRequest) {
 
   try {
+    const auth = await requirePermission(req, "timesheets.leaves.manage");
+    if (!auth.ok) return auth.response;
+
 
     const body = (await req.json()) as UpdateLeaveBody;
 
@@ -254,6 +266,8 @@ export async function PUT(req: NextRequest) {
 
     }
 
+    await runAudited(req, auth.ctx, { action: "timesheets.leave.updated", targetType: "timesheets.leave", details: {} }, []);
+
     return withCors(req,{
       success:true,
       message:"Leave updated successfully",
@@ -279,6 +293,9 @@ DELETE Leave
 export async function DELETE(req: NextRequest) {
 
   try {
+    const auth = await requirePermission(req, "timesheets.leaves.manage");
+    if (!auth.ok) return auth.response;
+
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
@@ -306,6 +323,8 @@ export async function DELETE(req: NextRequest) {
       },404);
 
     }
+
+    await runAudited(req, auth.ctx, { action: "timesheets.leave.deleted", targetType: "timesheets.leave", details: {} }, []);
 
     return withCors(req,{
       success:true,
