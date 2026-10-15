@@ -284,6 +284,16 @@ export async function POST(req: NextRequest) {
       ]
     );
 
+    const newRole = result?.[0];
+    const newRoleId = newRole?.id ? Number(newRole.id) : null;
+    const rawPermIds = body.permission_ids ?? body.permissions;
+    if (newRoleId && Array.isArray(rawPermIds) && rawPermIds.length > 0) {
+      const permIds = rawPermIds.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0);
+      for (const pid of permIds) {
+        await db`INSERT INTO role_permissions (role_id, permission_id) VALUES (${newRoleId}, ${pid}) ON CONFLICT DO NOTHING`;
+      }
+    }
+
     return withCors(req, {
       success: true,
       message: "Role created successfully",
@@ -352,7 +362,20 @@ export async function GET(req: NextRequest) {
       return withCors(req, { success: true, data: visible });
     }
 
-    const roles = await db`SELECT * FROM roles ORDER BY id ASC`;
+    const roles = await db`
+      SELECT r.*,
+             COALESCE(
+               (
+                 SELECT json_agg(p.* ORDER BY p.key ASC)
+                 FROM role_permissions rp
+                 JOIN permissions p ON p.id = rp.permission_id
+                 WHERE rp.role_id = r.id
+               ),
+               '[]'::json
+             ) AS permissions
+      FROM roles r
+      ORDER BY r.id ASC
+    `;
     return withCors(req, { success: true, data: roles });
   } catch (error: any) {
     console.error("GET ROLES ERROR:", error);
@@ -408,6 +431,15 @@ export async function PATCH(req: NextRequest) {
         `,
       ]
     );
+
+    const rawPermIds = body.permission_ids ?? body.permissions;
+    if (Array.isArray(rawPermIds)) {
+      const permIds = rawPermIds.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0);
+      await db`DELETE FROM role_permissions WHERE role_id = ${Number(id)}`;
+      for (const pid of permIds) {
+        await db`INSERT INTO role_permissions (role_id, permission_id) VALUES (${Number(id)}, ${pid}) ON CONFLICT DO NOTHING`;
+      }
+    }
 
     return withCors(req, { success: true, message: "Role updated", data: updated?.[0] });
   } catch (error: any) {
