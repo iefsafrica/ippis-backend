@@ -38,8 +38,9 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as VerifyOTPBody;
     const { username, email, otp } = body;
+    const rawIdentifier = (username || email || "").trim();
 
-    if ((!username && !email) || !otp) {
+    if (!rawIdentifier || !otp) {
       return withCors(
         req,
         { success: false, message: "Username/email and OTP are required" },
@@ -47,11 +48,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1️⃣ Find the admin user
+    // 1️⃣ Find the admin user (supports case-insensitive username or email, ignores empty strings)
     const result = await sql`
       SELECT id, username, email, role, is_active
       FROM admin_users
-      WHERE username = ${username ?? null} OR email = ${email ?? null}
+      WHERE (
+        (NULLIF(TRIM(username), '') IS NOT NULL AND (
+          LOWER(TRIM(username)) = LOWER(${rawIdentifier})
+          OR LOWER(TRIM(username)) = LOWER(${email?.trim() ?? ''})
+        ))
+        OR
+        (NULLIF(TRIM(email), '') IS NOT NULL AND (
+          LOWER(TRIM(email)) = LOWER(${rawIdentifier})
+          OR LOWER(TRIM(email)) = LOWER(${username?.trim() ?? ''})
+        ))
+      )
       LIMIT 1
     `;
     const user = result[0];

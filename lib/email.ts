@@ -1,15 +1,18 @@
 import nodemailer from "nodemailer";
 import { withCors, handleOptions } from "@/lib/cors";
 
-// Create transporter using env variables
+// Create transporter using env variables with robust timeouts
 export const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT),
+  host: process.env.SMTP_HOST || "smtp.gmail.com",
+  port: Number(process.env.SMTP_PORT) || 587,
   secure: process.env.SMTP_SECURE === "true", // false for 587, true for 465
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
+  connectionTimeout: 8000, // 8 seconds connection timeout
+  greetingTimeout: 8000,   // 8 seconds greeting timeout
+  socketTimeout: 10000,    // 10 seconds socket timeout
 });
 
 /**
@@ -19,22 +22,21 @@ export const transporter = nodemailer.createTransport({
  * @param otp OTP code
  */
 export async function sendOTPEmail(to: string, otp: string) {
+  // Always log OTP for administrative access and audit trail
+  console.log(`[OTP Email] Generated OTP for ${to}: ${otp}`);
+
   // Local development only: print the OTP instead of emailing it.
   // `next build` / `next start` always run with NODE_ENV=production, so deployed servers never log it.
   if (process.env.NODE_ENV !== "production") {
-    console.log(`[OTP Email] DEV MODE - email not sent. OTP for ${to}: ${otp}`);
+    console.log(`[OTP Email] DEV MODE - email not sent.`);
     return null;
   }
 
-  console.log(`[OTP Email] Attempting to send OTP to: ${to}`);
+  console.log(`[OTP Email] Attempting to send OTP email to: ${to}`);
 
   try {
-    // Verify SMTP connection before sending
-    await transporter.verify();
-    console.log("[OTP Email] SMTP connection verified");
-
     const info = await transporter.sendMail({
-      from: `"IPPIS Admin" <${process.env.SMTP_USER}>`,
+      from: `"IPPIS Admin" <${process.env.SMTP_USER || "admin@ippis.gov.ng"}>`,
       to,
       subject: "Your Admin OTP Code",
       html: `

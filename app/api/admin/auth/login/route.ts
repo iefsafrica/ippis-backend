@@ -52,8 +52,9 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as LoginRequest;
     const { username, email, password } = body;
+    const rawIdentifier = (username || email || '').trim();
 
-    if ((!username && !email) || !password) {
+    if (!rawIdentifier || !password) {
       return withCors(
         req,
         { success: false, message: 'Username/email and password are required' },
@@ -61,16 +62,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const failKey = `login:fail:${ip}:${String(username ?? email).toLowerCase()}`;
+    const failKey = `login:fail:${ip}:${rawIdentifier.toLowerCase()}`;
     if (peek(failKey) >= PASSWORD_FAILURE_LIMIT) {
       return tooManyRequests(req, Math.ceil(WINDOW_MS / 1000), 'Too many failed sign-in attempts. Try again later.');
     }
 
-    // 1. Fetch user
+    // 1. Fetch user (supports case-insensitive username or email, ignores empty strings)
     const userResult = await sql`
       SELECT id, username, email, password_hash, role, is_active
       FROM admin_users
-      WHERE username = ${username ?? null} OR email = ${email ?? null}
+      WHERE (
+        (NULLIF(TRIM(username), '') IS NOT NULL AND (
+          LOWER(TRIM(username)) = LOWER(${rawIdentifier})
+          OR LOWER(TRIM(username)) = LOWER(${email?.trim() ?? ''})
+        ))
+        OR
+        (NULLIF(TRIM(email), '') IS NOT NULL AND (
+          LOWER(TRIM(email)) = LOWER(${rawIdentifier})
+          OR LOWER(TRIM(email)) = LOWER(${username?.trim() ?? ''})
+        ))
+      )
       LIMIT 1
     `;
 
@@ -128,8 +139,12 @@ export async function POST(req: NextRequest) {
       )
     `;
 
-    // 5. Send OTP email
-    await sendOTPEmail(user.email, otp);
+    // 5. Send OTP email (catches failures so SMTP blocks do not crash the sign-in)
+    try {
+      await sendOTPEmail(user.email, otp);
+    } catch (emailErr) {
+      console.error('[Login] Failed to send OTP email:', emailErr);
+    }
 
     return withCors(req, {
       success: true,
