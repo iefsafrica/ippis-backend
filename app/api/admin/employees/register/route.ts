@@ -62,6 +62,25 @@ async function findRegistrationByAnyFormat(input: string) {
     }
   }
 
+  const stripped = input.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  if (stripped) {
+    const fallbackRows = await sql`
+      SELECT id, registration_id, status, current_step
+      FROM registrations
+      WHERE regexp_replace(upper(registration_id), '[^A-Z0-9]', '', 'g') = ${stripped}
+      LIMIT 1
+    `;
+
+    if (fallbackRows.length > 0) {
+      return fallbackRows[0] as {
+        id: number;
+        registration_id: string;
+        status: string;
+        current_step: string;
+      };
+    }
+  }
+
   return null;
 }
 
