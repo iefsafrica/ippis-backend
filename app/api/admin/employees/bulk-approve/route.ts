@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { sendEmployeeApprovalEmail } from "@/lib/email"
 
 export const dynamic = "force-dynamic"
 
@@ -112,6 +113,19 @@ export async function POST(req: NextRequest) {
         `
 
         results.success.push(registrationId)
+
+        // Send official HTML employment approval email with Employee ID
+        if (email) {
+          sendEmployeeApprovalEmail({
+            to: email,
+            fullName: name,
+            employeeId: registrationId,
+            position: position || undefined,
+            department: department || undefined,
+          }).catch((err) => {
+            console.error(`Bulk approval email failed for ${email}:`, err);
+          });
+        }
       } catch (err: any) {
         results.failed.push({ id: registrationId, error: err.message })
       }

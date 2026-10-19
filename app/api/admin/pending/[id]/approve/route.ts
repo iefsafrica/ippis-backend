@@ -2,7 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
-import nodemailer from "nodemailer";
+import { sendEmployeeApprovalEmail } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -116,32 +116,17 @@ export async function PATCH(req: NextRequest) {
       RETURNING *
     `;
 
-    // Optional email notification
-    if (process.env.SMTP_USER && insertedEmployee?.email) {
-      try {
-        const transporter = nodemailer.createTransport({
-          service: "gmail",
-          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-        });
-
-        await transporter.sendMail({
-          from: `"HR Department" <${process.env.SMTP_USER}>`,
-          to: insertedEmployee.email,
-          subject: "Approval Successful",
-          text: `Hello ${fullName},
-
-Your employment has been officially approved. Welcome aboard!
-
-Your employee ID is: ${insertedEmployee.id}
-
-Regards,
-HR Team`,
-        });
-
-        console.log(`Email sent to ${insertedEmployee.email}`);
-      } catch (err) {
-        console.error("Email send failed:", err);
-      }
+    // Send official HTML employment approval email with Employee ID
+    if (insertedEmployee?.email && insertedEmployee.email !== "no-email@example.com") {
+      await sendEmployeeApprovalEmail({
+        to: insertedEmployee.email,
+        fullName,
+        employeeId: insertedEmployee.id,
+        position: insertedEmployee.position || undefined,
+        department: insertedEmployee.department || undefined,
+      }).catch((err) => {
+        console.error("Employee approval email send failed:", err);
+      });
     }
 
     // 🔥 DELETE from pending_employees AFTER successful migration

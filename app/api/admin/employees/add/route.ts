@@ -7,7 +7,6 @@ import {
   normalizeRegistrationId,
 } from "@/lib/registration-id";
 import { v4 as uuidv4 } from "uuid";
-import nodemailer from "nodemailer";
 
 export const dynamic = "force-dynamic";
 
@@ -32,17 +31,7 @@ async function tableExists(tableName: string) {
 }
 
 import { generateRegistrationId } from "@/lib/register-utils";
-
-// Nodemailer transport
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER!,
-    pass: process.env.SMTP_PASS!,
-  },
-});
+import { sendEmployeeRegistrationEmail } from "@/lib/email";
 
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
@@ -235,32 +224,20 @@ export async function POST(req: NextRequest) {
     `;
     const employee = inserted[0];
 
-    // 5. Send Email
-    const baseUrl = process.env.APP_URL || "https://ipphis.com";
+    // 5. Send Email (HTML notification with Registration ID and Onboarding link)
+    const baseUrl = process.env.NEXT_PUBLIC_FRONTEND_URL || process.env.APP_URL || "https://ippis-frontend.vercel.app";
     const registrationLink = `${baseUrl}/register?email=${encodeURIComponent(email)}`;
-    
-    const message = `Dear ${firstname},
 
-Your employee profile has been created in the IPPHIS system by an administrator.
-
-Your Employee Registration ID is: ${registrationId}
-
-Please login to the portal and upload your required documents to complete your onboarding process:
-${registrationLink}
-
-Thank you,
-The IPPHIS Team`;
-
-    try {
-      await transporter.sendMail({
-        from: `"HR Department" <${process.env.SMTP_USER}>`,
-        to: email,
-        subject: "Welcome to IPPHIS - Action Required",
-        text: message,
-      });
-    } catch (emailError) {
-      console.error("Failed to send email:", emailError);
-    }
+    await sendEmployeeRegistrationEmail({
+      to: email,
+      fullName: `${firstname} ${surname}`.trim(),
+      registrationId,
+      department: department || undefined,
+      position: position || undefined,
+      onboardingUrl: registrationLink,
+    }).catch((emailError) => {
+      console.error("Failed to send employee registration email:", emailError);
+    });
 
     await runAudited(req, auth.ctx, {
       action: "employees.record.created",

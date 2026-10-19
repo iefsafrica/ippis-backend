@@ -19,6 +19,7 @@ import {
   resolveValidScope,
   UserRoleRecord,
 } from "@/lib/user-management";
+import { sendEmployeeCredentialsEmail } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -299,6 +300,29 @@ export async function POST(req: NextRequest) {
     const allRoles = await getAllRoles();
     const rolesMap = await loadUserRolesMap([newUserId]);
     const formatted = formatUserAccount(newUser, rolesMap[String(newUserId)] || [], allRoles);
+
+    // Send credential login email with HTML formatting to employee/user
+    const primaryRole = allRoles.find((r) => roleIdList.includes(r.id))?.name || "Officer / User";
+    const mdaRow = validScope.company_id
+      ? (await db`SELECT name FROM companies WHERE id = ${validScope.company_id}`)[0]
+      : null;
+    const deptRow = validScope.department_id
+      ? (await db`SELECT name FROM departments WHERE id = ${validScope.department_id}`)[0]
+      : null;
+
+    sendEmployeeCredentialsEmail({
+      to: cleanEmail,
+      fullName: full_name,
+      username: cleanUsername,
+      temporaryPassword: initialPassword,
+      staffId: newUser.staff_id,
+      roleName: primaryRole,
+      mdaName: mdaRow?.name || undefined,
+      departmentName: deptRow?.name || undefined,
+      loginUrl: `${process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app"}/login`,
+    }).catch((emailErr) => {
+      console.error("Failed to send welcome credentials email:", emailErr);
+    });
 
     return withCors(req, {
       success: true,

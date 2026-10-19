@@ -1,18 +1,28 @@
 import nodemailer from "nodemailer";
 import { withCors, handleOptions } from "@/lib/cors";
 
-// Create transporter using env variables with robust timeouts
-export const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.gmail.com",
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: process.env.SMTP_SECURE === "true", // false for 587, true for 465
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
+// Create transporter using current env variables dynamically
+export function getTransporter() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST || "smtp.gmail.com",
+    port: Number(process.env.SMTP_PORT) || 587,
+    secure: process.env.SMTP_SECURE === "true",
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+    connectionTimeout: 8000, // 8 seconds connection timeout
+    greetingTimeout: 8000,   // 8 seconds greeting timeout
+    socketTimeout: 10000,    // 10 seconds socket timeout
+  });
+}
+
+export const transporter = new Proxy({} as nodemailer.Transporter, {
+  get(_target, prop) {
+    const instance = getTransporter();
+    const val = (instance as any)[prop];
+    return typeof val === "function" ? val.bind(instance) : val;
   },
-  connectionTimeout: 8000, // 8 seconds connection timeout
-  greetingTimeout: 8000,   // 8 seconds greeting timeout
-  socketTimeout: 10000,    // 10 seconds socket timeout
 });
 
 function generateOTPEmailHtml(otp: string): string {
@@ -130,5 +140,650 @@ export async function sendOTPEmail(to: string, otp: string) {
     }
     console.error("[OTP Email] Error details:", error);
     throw new Error(`Failed to send OTP email: ${error.message}`);
+  }
+}
+
+/**
+ * =========================================================================
+ * EMPLOYEE CREDENTIALS & ACCOUNT CREATION EMAILS (HTML)
+ * =========================================================================
+ */
+
+export interface EmployeeCredentialsPayload {
+  to: string;
+  fullName: string;
+  username: string;
+  temporaryPassword: string;
+  roleName?: string | undefined;
+  mdaName?: string | undefined;
+  departmentName?: string | undefined;
+  staffId?: string | undefined;
+  loginUrl?: string | undefined;
+}
+
+function generateCredentialsEmailHtml(payload: EmployeeCredentialsPayload): string {
+  const {
+    to,
+    fullName,
+    username,
+    temporaryPassword,
+    roleName,
+    mdaName,
+    departmentName,
+    staffId,
+    loginUrl = process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app/login",
+  } = payload;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your IPPIS Portal Account Login Credentials</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);">
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #065f46 0%, #047857 50%, #059669 100%); padding: 36px 28px; text-align: center;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 0.5px;">IPPIS HRMS PORTAL</h1>
+              <p style="margin: 6px 0 0; color: #a7f3d0; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Federal Republic of Nigeria</p>
+            </td>
+          </tr>
+          <!-- Body Content -->
+          <tr>
+            <td style="padding: 36px 32px;">
+              <h2 style="margin: 0 0 16px; color: #0f172a; font-size: 20px; font-weight: 600;">Welcome, ${fullName}</h2>
+              <p style="margin: 0 0 16px; color: #475569; font-size: 15px; line-height: 1.6;">
+                An official account has been successfully created for you on the <strong>Integrated Personnel and Payroll Information System (IPPIS)</strong>.
+              </p>
+              <p style="margin: 0 0 24px; color: #475569; font-size: 15px; line-height: 1.6;">
+                Below are your official login credentials to sign in to the portal:
+              </p>
+              
+              <!-- Credentials Card -->
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #059669; border-radius: 8px; padding: 20px 24px; margin-bottom: 24px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size: 14px; line-height: 1.8;">
+                  <tr>
+                    <td style="color: #64748b; width: 145px; padding: 4px 0; font-weight: 500;">Portal URL:</td>
+                    <td style="color: #0f172a; padding: 4px 0;"><a href="${loginUrl}" style="color: #059669; text-decoration: underline; font-weight: 600;">${loginUrl}</a></td>
+                  </tr>
+                  ${staffId ? `
+                  <tr>
+                    <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Staff / ID No:</td>
+                    <td style="color: #0f172a; font-family: monospace; font-size: 15px; font-weight: 700; padding: 4px 0;">${staffId}</td>
+                  </tr>` : ''}
+                  <tr>
+                    <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Username:</td>
+                    <td style="color: #0f172a; font-weight: 700; padding: 4px 0;">${username}</td>
+                  </tr>
+                  <tr>
+                    <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Email:</td>
+                    <td style="color: #0f172a; padding: 4px 0;">${to}</td>
+                  </tr>
+                  <tr>
+                    <td style="color: #64748b; padding: 6px 0; font-weight: 500;">Temporary Password:</td>
+                    <td style="padding: 6px 0;">
+                      <span style="font-family: 'Courier New', Courier, monospace; font-size: 16px; font-weight: 800; color: #047857; background-color: #d1fae5; padding: 4px 10px; border-radius: 4px; border: 1px solid #a7f3d0; letter-spacing: 0.5px; display: inline-block;">${temporaryPassword}</span>
+                    </td>
+                  </tr>
+                  ${roleName ? `
+                  <tr>
+                    <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Assigned Role:</td>
+                    <td style="color: #0f172a; font-weight: 600; padding: 4px 0;">${roleName}</td>
+                  </tr>` : ''}
+                  ${mdaName ? `
+                  <tr>
+                    <td style="color: #64748b; padding: 4px 0; font-weight: 500;">MDA:</td>
+                    <td style="color: #0f172a; padding: 4px 0;">${mdaName}</td>
+                  </tr>` : ''}
+                  ${departmentName ? `
+                  <tr>
+                    <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Department:</td>
+                    <td style="color: #0f172a; padding: 4px 0;">${departmentName}</td>
+                  </tr>` : ''}
+                </table>
+              </div>
+
+              <!-- Button CTA -->
+              <div style="text-align: center; margin: 28px 0 24px;">
+                <a href="${loginUrl}" style="background: linear-gradient(135deg, #065f46 0%, #059669 100%); color: #ffffff; padding: 14px 32px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block; box-shadow: 0 2px 4px rgba(4, 120, 87, 0.3);">
+                  Log In to IPPIS Portal &rarr;
+                </a>
+              </div>
+
+              <!-- Security Notice -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #fefce8; border-left: 4px solid #eab308; border-radius: 6px; padding: 14px 18px; margin-bottom: 24px;">
+                <tr>
+                  <td>
+                    <p style="margin: 0 0 6px; color: #854d0e; font-size: 13px; font-weight: 700;">
+                      &#9888; Mandatory Security Requirement
+                    </p>
+                    <p style="margin: 0; color: #713f12; font-size: 13px; line-height: 1.5;">
+                      For your protection, you are required to change your temporary password immediately upon your first sign-in. Never disclose your login credentials or OTP to any third party.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 0; color: #64748b; font-size: 13px; line-height: 1.6;">
+                If you did not request or expect this account, please immediately contact your MDA Desk Officer or the IPPIS support team.
+              </p>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; text-align: center;">
+              <p style="margin: 0 0 4px; color: #64748b; font-size: 12px; font-weight: 600;">
+                Integrated Personnel and Payroll Information System (IPPIS)
+              </p>
+              <p style="margin: 0 0 6px; color: #94a3b8; font-size: 12px;">
+                Office of the Accountant-General of the Federation &bull; Federal Republic of Nigeria
+              </p>
+              <p style="margin: 0; color: #cbd5e1; font-size: 11px;">
+                This is an automated system notification. Please do not reply directly to this email.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
+ * Sends login credentials to an employee/user upon account creation.
+ */
+export async function sendEmployeeCredentialsEmail(payload: EmployeeCredentialsPayload) {
+  const { to, fullName, username, temporaryPassword, staffId, roleName, loginUrl = process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app/login" } = payload;
+  console.log(`[Credentials Email] Preparing credentials email for ${fullName} (${to}) with username: ${username}`);
+
+  const recipients = Array.from(
+    new Set([
+      to,
+      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+    ])
+  ).filter(Boolean);
+
+  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  if (!hasCredentials) {
+    console.warn(`[Credentials Email] SMTP credentials not set, email skipped for: ${to}`);
+    return null;
+  }
+
+  const plainText = `Dear ${fullName},
+
+Your official IPPIS Portal account has been created.
+
+Here are your account credentials:
+- Portal URL: ${loginUrl}
+${staffId ? `- Staff ID: ${staffId}\n` : ''}- Username: ${username}
+- Email: ${to}
+- Temporary Password: ${temporaryPassword}
+${roleName ? `- Assigned Role: ${roleName}\n` : ''}
+
+SECURITY NOTICE:
+You are required to change your temporary password immediately upon your first sign-in. Never share your password or OTP with anyone.
+
+Integrated Personnel and Payroll Information System (IPPIS)
+Federal Republic of Nigeria`;
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"IPPIS HRMS" <${process.env.SMTP_USER}>`,
+      to: recipients.join(", "),
+      subject: "Your IPPIS Portal Account Has Been Created - Login Credentials",
+      text: plainText,
+      html: generateCredentialsEmailHtml(payload),
+    });
+
+    console.log(`[Credentials Email] Sent successfully to ${recipients.join(", ")}. Message ID: ${info.messageId}`);
+    return info;
+  } catch (error: any) {
+    console.error(`[Credentials Email] Failed to send email to ${recipients.join(", ")}:`, error);
+    // Log error but do not throw unhandled exception to prevent breaking the caller transaction
+    return null;
+  }
+}
+
+/**
+ * =========================================================================
+ * EMPLOYEE REGISTRATION / ONBOARDING EMAILS (HTML)
+ * =========================================================================
+ */
+
+export interface EmployeeRegistrationPayload {
+  to: string;
+  fullName: string;
+  registrationId: string;
+  position?: string | undefined;
+  department?: string | undefined;
+  onboardingUrl?: string | undefined;
+}
+
+function generateRegistrationEmailHtml(payload: EmployeeRegistrationPayload): string {
+  const {
+    fullName,
+    registrationId,
+    position,
+    department,
+    onboardingUrl = `${process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app"}/register`,
+  } = payload;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your IPPIS Employee Registration Details</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);">
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #065f46 0%, #047857 50%, #059669 100%); padding: 36px 28px; text-align: center;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 0.5px;">IPPIS HRMS PORTAL</h1>
+              <p style="margin: 6px 0 0; color: #a7f3d0; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Federal Republic of Nigeria</p>
+            </td>
+          </tr>
+          <!-- Body Content -->
+          <tr>
+            <td style="padding: 36px 32px;">
+              <h2 style="margin: 0 0 16px; color: #0f172a; font-size: 20px; font-weight: 600;">Welcome, ${fullName}</h2>
+              <p style="margin: 0 0 16px; color: #475569; font-size: 15px; line-height: 1.6;">
+                Your employee profile has been registered on the <strong>Integrated Personnel and Payroll Information System (IPPIS)</strong>.
+              </p>
+              
+              <!-- Registration ID Box -->
+              <div style="background-color: #f0fdf4; border: 2px dashed #86efac; border-radius: 10px; padding: 24px; text-align: center; margin: 24px 0;">
+                <span style="display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: #166534; margin-bottom: 8px;">Employee Registration ID</span>
+                <span style="font-family: 'Courier New', Courier, monospace; font-size: 26px; font-weight: 800; letter-spacing: 2px; color: #047857; display: inline-block;">${registrationId}</span>
+              </div>
+
+              ${(department || position) ? `
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; margin-bottom: 24px; font-size: 14px; line-height: 1.8;">
+                ${position ? `<div><span style="color: #64748b; font-weight: 500;">Position:</span> <strong style="color: #0f172a;">${position}</strong></div>` : ''}
+                ${department ? `<div><span style="color: #64748b; font-weight: 500;">Department:</span> <strong style="color: #0f172a;">${department}</strong></div>` : ''}
+              </div>` : ''}
+
+              <p style="margin: 0 0 20px; color: #475569; font-size: 15px; line-height: 1.6;">
+                <strong>Required Action:</strong> Please log in to the employee registration portal using your Registration ID to upload your mandatory credentials (Letter of First Appointment, Educational Certificates, and verification documents) to complete your onboarding:
+              </p>
+
+              <!-- Button CTA -->
+              <div style="text-align: center; margin: 28px 0 24px;">
+                <a href="${onboardingUrl}" style="background: linear-gradient(135deg, #065f46 0%, #059669 100%); color: #ffffff; padding: 14px 32px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block; box-shadow: 0 2px 4px rgba(4, 120, 87, 0.3);">
+                  Complete Registration & Upload Documents &rarr;
+                </a>
+              </div>
+
+              <p style="margin: 0; color: #64748b; font-size: 13px; line-height: 1.6;">
+                Please keep this Registration ID safe. You will need it to track your enrollment and approval status.
+              </p>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; text-align: center;">
+              <p style="margin: 0 0 4px; color: #64748b; font-size: 12px; font-weight: 600;">
+                Integrated Personnel and Payroll Information System (IPPIS)
+              </p>
+              <p style="margin: 0 0 6px; color: #94a3b8; font-size: 12px;">
+                Office of the Accountant-General of the Federation &bull; Federal Republic of Nigeria
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
+ * Sends an employee registration onboarding email with Registration ID.
+ */
+export async function sendEmployeeRegistrationEmail(payload: EmployeeRegistrationPayload) {
+  const { to, fullName, registrationId, onboardingUrl } = payload;
+  console.log(`[Registration Email] Sending registration details for ${fullName} (${to})`);
+
+  const recipients = Array.from(
+    new Set([
+      to,
+      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+    ])
+  ).filter(Boolean);
+
+  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  if (!hasCredentials) {
+    console.warn(`[Registration Email] SMTP credentials not set, email skipped for: ${to}`);
+    return null;
+  }
+
+  const plainText = `Dear ${fullName},
+
+Your employee registration has been received on the IPPIS Portal.
+
+Your Employee Registration ID is:
+${registrationId}
+
+Please visit the onboarding link to complete your registration and upload required documents:
+${onboardingUrl}
+
+Integrated Personnel and Payroll Information System (IPPIS)
+Federal Republic of Nigeria`;
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"IPPIS HRMS" <${process.env.SMTP_USER}>`,
+      to: recipients.join(", "),
+      subject: "Welcome to IPPIS - Employee Registration ID & Onboarding",
+      text: plainText,
+      html: generateRegistrationEmailHtml(payload),
+    });
+
+    console.log(`[Registration Email] Sent successfully to ${recipients.join(", ")}. Message ID: ${info.messageId}`);
+    return info;
+  } catch (error: any) {
+    console.error(`[Registration Email] Failed to send email to ${recipients.join(", ")}:`, error);
+    return null;
+  }
+}
+
+/**
+ * =========================================================================
+ * EMPLOYEE APPROVAL & OFFICIAL ID NOTIFICATION EMAILS (HTML)
+ * =========================================================================
+ */
+
+export interface EmployeeApprovalPayload {
+  to: string;
+  fullName: string;
+  employeeId: string;
+  position?: string | undefined;
+  department?: string | undefined;
+  loginUrl?: string | undefined;
+}
+
+function generateApprovalEmailHtml(payload: EmployeeApprovalPayload): string {
+  const {
+    fullName,
+    employeeId,
+    position,
+    department,
+    loginUrl = `${process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app"}/login`,
+  } = payload;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Official Employment Approval - IPPIS</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);">
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #065f46 0%, #047857 50%, #059669 100%); padding: 36px 28px; text-align: center;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 0.5px;">IPPIS HRMS PORTAL</h1>
+              <p style="margin: 6px 0 0; color: #a7f3d0; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Federal Republic of Nigeria</p>
+            </td>
+          </tr>
+          <!-- Body Content -->
+          <tr>
+            <td style="padding: 36px 32px;">
+              <div style="background-color: #ecfdf5; border-radius: 6px; padding: 8px 14px; display: inline-block; margin-bottom: 16px;">
+                <span style="color: #065f46; font-size: 13px; font-weight: 700;">&#10003; EMPLOYMENT RECORD APPROVED</span>
+              </div>
+              <h2 style="margin: 0 0 16px; color: #0f172a; font-size: 20px; font-weight: 600;">Congratulations, ${fullName}</h2>
+              <p style="margin: 0 0 20px; color: #475569; font-size: 15px; line-height: 1.6;">
+                Your employment record has been officially approved and activated on the <strong>Integrated Personnel and Payroll Information System (IPPIS)</strong>.
+              </p>
+              
+              <!-- Official Employee ID Box -->
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #059669; border-radius: 8px; padding: 20px 24px; margin-bottom: 24px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size: 14px; line-height: 1.8;">
+                  <tr>
+                    <td style="color: #64748b; width: 150px; padding: 4px 0; font-weight: 500;">Official Employee ID:</td>
+                    <td style="color: #047857; font-family: monospace; font-size: 18px; font-weight: 800; padding: 4px 0;">${employeeId}</td>
+                  </tr>
+                  ${position ? `
+                  <tr>
+                    <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Position / Rank:</td>
+                    <td style="color: #0f172a; font-weight: 600; padding: 4px 0;">${position}</td>
+                  </tr>` : ''}
+                  ${department ? `
+                  <tr>
+                    <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Department / MDA:</td>
+                    <td style="color: #0f172a; padding: 4px 0;">${department}</td>
+                  </tr>` : ''}
+                  <tr>
+                    <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Employment Status:</td>
+                    <td style="color: #047857; font-weight: 700; padding: 4px 0;">Active</td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- Button CTA -->
+              <div style="text-align: center; margin: 28px 0 24px;">
+                <a href="${loginUrl}" style="background: linear-gradient(135deg, #065f46 0%, #059669 100%); color: #ffffff; padding: 14px 32px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block; box-shadow: 0 2px 4px rgba(4, 120, 87, 0.3);">
+                  Access Employee Self-Service Portal &rarr;
+                </a>
+              </div>
+
+              <p style="margin: 0; color: #64748b; font-size: 13px; line-height: 1.6;">
+                You can now log in to the Employee Self-Service portal to access payslips, leave applications, and HR services.
+              </p>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; text-align: center;">
+              <p style="margin: 0 0 4px; color: #64748b; font-size: 12px; font-weight: 600;">
+                Integrated Personnel and Payroll Information System (IPPIS)
+              </p>
+              <p style="margin: 0 0 6px; color: #94a3b8; font-size: 12px;">
+                Office of the Accountant-General of the Federation &bull; Federal Republic of Nigeria
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
+ * Sends an official employment approval email with official Employee ID.
+ */
+export async function sendEmployeeApprovalEmail(payload: EmployeeApprovalPayload) {
+  const { to, fullName, employeeId } = payload;
+  console.log(`[Approval Email] Sending approval notification for ${fullName} (${to})`);
+
+  const recipients = Array.from(
+    new Set([
+      to,
+      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+    ])
+  ).filter(Boolean);
+
+  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  if (!hasCredentials) {
+    console.warn(`[Approval Email] SMTP credentials not set, email skipped for: ${to}`);
+    return null;
+  }
+
+  const plainText = `Dear ${fullName},
+
+Your employment record has been officially approved and activated on IPPIS.
+
+Your Official Employee ID: ${employeeId}
+
+You may now access the Employee Self-Service portal.
+
+Integrated Personnel and Payroll Information System (IPPIS)
+Federal Republic of Nigeria`;
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"IPPIS HRMS" <${process.env.SMTP_USER}>`,
+      to: recipients.join(", "),
+      subject: "Official Employment Record Approved - IPPIS HRMS",
+      text: plainText,
+      html: generateApprovalEmailHtml(payload),
+    });
+
+    console.log(`[Approval Email] Sent successfully to ${recipients.join(", ")}. Message ID: ${info.messageId}`);
+    return info;
+  } catch (error: any) {
+    console.error(`[Approval Email] Failed to send email to ${recipients.join(", ")}:`, error);
+    return null;
+  }
+}
+
+/**
+ * =========================================================================
+ * EMPLOYEE REJECTION NOTIFICATION EMAILS (HTML)
+ * =========================================================================
+ */
+
+export interface EmployeeRejectionPayload {
+  to: string;
+  fullName: string;
+  reapplyUrl: string;
+  reason?: string | undefined;
+}
+
+function generateRejectionEmailHtml(payload: EmployeeRejectionPayload): string {
+  const { fullName, reapplyUrl, reason } = payload;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employment Application Status - IPPIS</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);">
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #065f46 0%, #047857 50%, #059669 100%); padding: 36px 28px; text-align: center;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 0.5px;">IPPIS HRMS PORTAL</h1>
+              <p style="margin: 6px 0 0; color: #a7f3d0; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Federal Republic of Nigeria</p>
+            </td>
+          </tr>
+          <!-- Body Content -->
+          <tr>
+            <td style="padding: 36px 32px;">
+              <div style="background-color: #fff1f2; border-radius: 6px; padding: 8px 14px; display: inline-block; margin-bottom: 16px;">
+                <span style="color: #be123c; font-size: 13px; font-weight: 700;">APPLICATION STATUS UPDATE</span>
+              </div>
+              <h2 style="margin: 0 0 16px; color: #0f172a; font-size: 20px; font-weight: 600;">Dear ${fullName},</h2>
+              <p style="margin: 0 0 16px; color: #475569; font-size: 15px; line-height: 1.6;">
+                Thank you for your interest and submission to the <strong>Integrated Personnel and Payroll Information System (IPPIS)</strong>.
+              </p>
+              <p style="margin: 0 0 20px; color: #475569; font-size: 15px; line-height: 1.6;">
+                After careful review of your registration documents and verification records, we regret to inform you that your application could not be approved at this time.
+              </p>
+              ${reason ? `
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #be123c; border-radius: 8px; padding: 16px 20px; margin-bottom: 24px; font-size: 14px; line-height: 1.6;">
+                <div style="color: #64748b; font-weight: 500; margin-bottom: 4px;">Review Feedback:</div>
+                <div style="color: #0f172a; font-weight: 500;">${reason}</div>
+              </div>` : ''}
+              <p style="margin: 0 0 20px; color: #475569; font-size: 15px; line-height: 1.6;">
+                You are welcome to update your information, correct any document discrepancies, and resubmit for reconsideration using the link below:
+              </p>
+              <!-- Button CTA -->
+              <div style="text-align: center; margin: 28px 0 24px;">
+                <a href="${reapplyUrl}" style="background: linear-gradient(135deg, #065f46 0%, #059669 100%); color: #ffffff; padding: 14px 32px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block; box-shadow: 0 2px 4px rgba(4, 120, 87, 0.3);">
+                  Resubmit Application &rarr;
+                </a>
+              </div>
+              <p style="margin: 0; color: #64748b; font-size: 13px; line-height: 1.6;">
+                If you have questions regarding this decision, please reach out to the IPPIS HR desk or your ministry desk officer.
+              </p>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; text-align: center;">
+              <p style="margin: 0 0 4px; color: #64748b; font-size: 12px; font-weight: 600;">
+                Integrated Personnel and Payroll Information System (IPPIS)
+              </p>
+              <p style="margin: 0 0 6px; color: #94a3b8; font-size: 12px;">
+                Office of the Accountant-General of the Federation &bull; Federal Republic of Nigeria
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
+ * Sends an official employment application rejection email with reapply link.
+ */
+export async function sendEmployeeRejectionEmail(payload: EmployeeRejectionPayload) {
+  const { to, fullName, reapplyUrl } = payload;
+  console.log(`[Rejection Email] Sending status notice for ${fullName} (${to})`);
+
+  const recipients = Array.from(
+    new Set([
+      to,
+      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+    ])
+  ).filter(Boolean);
+
+  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  if (!hasCredentials) {
+    console.warn(`[Rejection Email] SMTP credentials not set, email skipped for: ${to}`);
+    return null;
+  }
+
+  const plainText = `Dear ${fullName},
+
+We regret to inform you that your employment application has not been approved at this time.
+
+You are welcome to review and resubmit your details here:
+${reapplyUrl}
+
+Integrated Personnel and Payroll Information System (IPPIS)
+Federal Republic of Nigeria`;
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"IPPIS HRMS" <${process.env.SMTP_USER}>`,
+      to: recipients.join(", "),
+      subject: "Your IPPIS Employment Application Status",
+      text: plainText,
+      html: generateRejectionEmailHtml(payload),
+    });
+
+    console.log(`[Rejection Email] Sent successfully to ${recipients.join(", ")}. Message ID: ${info.messageId}`);
+    return info;
+  } catch (error: any) {
+    console.error(`[Rejection Email] Failed to send email to ${recipients.join(", ")}:`, error);
+    return null;
   }
 }

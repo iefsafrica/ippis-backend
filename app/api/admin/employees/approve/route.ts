@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { sendEmployeeApprovalEmail } from "@/lib/email"
 
 export const dynamic = "force-dynamic"
 
@@ -120,6 +121,19 @@ export async function POST(req: NextRequest) {
       DELETE FROM pending_employees
       WHERE registration_id = ${registrationId}
     `
+
+    // Send official HTML employment approval email with Employee ID
+    if (email) {
+      sendEmployeeApprovalEmail({
+        to: email,
+        fullName: name,
+        employeeId,
+        position: position || undefined,
+        department: department || undefined,
+      }).catch((err) => {
+        console.error("Employee approval email send failed:", err);
+      });
+    }
 
     await runAudited(req, auth.ctx, {
       action: "employees.registration.approved",

@@ -5,6 +5,7 @@ import Papa from "papaparse";
 import bcrypt from "bcryptjs";
 import { requirePermission, runAudited } from "@/lib/rbac";
 import { normalizeScopeToBackend, resolveValidScope } from "@/lib/user-management";
+import { sendEmployeeCredentialsEmail } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -185,8 +186,9 @@ export async function POST(req: NextRequest) {
       const defaultCompany = allCompanies[0];
       const defaultDept = allDepartments[0];
 
+      const defaultTempPass = "IPPIS@Portal2025!";
       const salt = await bcrypt.genSalt(10);
-      const defaultPassHash = await bcrypt.hash("TempPassword123!", salt);
+      const defaultPassHash = await bcrypt.hash(defaultTempPass, salt);
 
       for (const r of validRows) {
         // Resolve role
@@ -238,6 +240,19 @@ export async function POST(req: NextRequest) {
             ON CONFLICT DO NOTHING
           `;
           importedCount++;
+
+          // Send credential login email to the employee
+          sendEmployeeCredentialsEmail({
+            to: r.email.toLowerCase(),
+            fullName: r.full_name,
+            username: r.username,
+            temporaryPassword: "IPPIS@Portal2025!",
+            staffId: r.staff_id,
+            roleName: role ? String(role.name) : undefined,
+            mdaName: company ? String(company.name) : undefined,
+            departmentName: dept ? String(dept.name) : undefined,
+            loginUrl: `${process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app"}/login`,
+          }).catch((e) => console.error(`[Bulk Import Email] Failed for ${r.email}:`, e));
         }
       }
 
