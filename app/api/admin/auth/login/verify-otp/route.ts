@@ -10,6 +10,7 @@ import {
   OTP_ACCOUNT_LIMIT,
   otpMatches,
 } from "@/lib/admin-otp";
+import { computeAccessibleModules } from "@/lib/user-management";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
 
     // 1️⃣ Find the admin user (supports case-insensitive username or email, ignores empty strings)
     const result = await sql`
-      SELECT id, username, email, role, is_active
+      SELECT id, username, email, full_name, role, is_active
       FROM admin_users
       WHERE (
         (NULLIF(TRIM(username), '') IS NOT NULL AND (
@@ -148,12 +149,36 @@ export async function POST(req: NextRequest) {
     clear(codeKey);
     clear(accountKey);
 
+    // Fetch user's active assigned roles and accessible modules
+    const userRoles = await sql`
+      SELECT r.id, r.key, r.name, ur.scope_level, ur.company_id, ur.department_id
+      FROM user_roles ur
+      JOIN roles r ON r.id = ur.role_id AND r.status = 'active'
+      WHERE ur.user_id = ${String(user.id)}
+        AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+      ORDER BY r.name ASC
+    `;
+
+    const primaryRole = userRoles[0];
+    const roleKey = primaryRole?.key || (user.role || "admin");
+    const roleName = primaryRole?.name || (user.role === "superadmin" ? "Super Administrator" : "Administrator");
+
+    const accessibleModules = computeAccessibleModules(
+      userRoles.map((r: any) => ({
+        id: Number(r.id),
+        key: r.key ? String(r.key) : null,
+        name: String(r.name),
+        scope_level: r.scope_level ? String(r.scope_level) : null,
+      }))
+    );
+
     // 6️⃣ Generate JWT token
     const token = jwt.sign(
       {
         id: user.id,
         username: user.username,
-        role: user.role,
+        role: roleKey,
+        role_name: roleName,
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRATION }
@@ -163,6 +188,15 @@ export async function POST(req: NextRequest) {
       success: true,
       message: "OTP verified successfully",
       token, // JWT token for login
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        fullName: user.full_name || user.username,
+        role: roleName,
+        role_key: roleKey,
+        accessible_modules: accessibleModules,
+      },
     });
   } catch (error) {
     console.error("OTP verification error:", error);

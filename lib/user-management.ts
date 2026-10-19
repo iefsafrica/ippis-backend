@@ -102,9 +102,12 @@ export function resolveValidScope(
 }
 
 /**
- * Computes accessible top-level modules based on user roles
+ * Computes accessible top-level modules based on user roles and granular permissions
  */
-export function computeAccessibleModules(roles: UserRoleRecord[]): string[] {
+export function computeAccessibleModules(
+  roles: UserRoleRecord[],
+  permissions: string[] = []
+): string[] {
   const roleNames = roles.map((r) => (r.name || "").toLowerCase());
   const roleKeys = roles.map((r) => (r.key || "").toLowerCase());
 
@@ -112,34 +115,181 @@ export function computeAccessibleModules(roles: UserRoleRecord[]): string[] {
     roleNames.some((n) => n.includes("super")) ||
     roleKeys.some((k) => k.includes("super"));
 
-  const isPayroll =
+  const isCentralAccess =
     isSuper ||
-    roleNames.some((n) => n.includes("payroll")) ||
-    roleKeys.some((k) => k.includes("payroll"));
+    roleNames.some((n) => n.includes("central access")) ||
+    roleKeys.some((k) => k.includes("central_access"));
 
-  const isHr =
+  const isCentralHr =
     isSuper ||
-    roleNames.some((n) => n.includes("hr")) ||
-    roleKeys.some((k) => k.includes("hr"));
+    roleNames.some((n) => n.includes("central hr")) ||
+    roleKeys.some((k) => k.includes("central_hr"));
 
-  const isAuditor =
+  const isCentralPayroll =
     isSuper ||
-    roleNames.some((n) => n.includes("audit")) ||
-    roleKeys.some((k) => k.includes("audit"));
+    roleNames.some((n) => n.includes("central payroll")) ||
+    roleKeys.some((k) => k.includes("central_payroll"));
 
   const isMdaAdmin =
     isSuper ||
     roleNames.some((n) => n.includes("mda admin")) ||
     roleKeys.includes("mda_admin");
 
-  const modules: string[] = ["Dashboard"];
-  if (isSuper || isHr || isMdaAdmin) modules.push("Employees");
-  if (isSuper || isHr || isMdaAdmin) modules.push("Core HR");
-  if (isPayroll) modules.push("Payroll");
-  if (isSuper || isPayroll) modules.push("Finance");
-  if (isSuper || isAuditor || isHr || isPayroll) modules.push("Reports", "HR Reports");
-  if (isSuper) {
-    modules.push("User Management", "Permissions", "Roles", "Settings");
+  const isDeptHead =
+    isSuper ||
+    roleNames.some((n) => n.includes("department head") || n.includes("dept head")) ||
+    roleKeys.includes("department_head");
+
+  const isHr =
+    isSuper ||
+    isCentralHr ||
+    roleNames.some((n) => n.includes("hr")) ||
+    roleKeys.some((k) => k.includes("hr"));
+
+  const isPayroll =
+    isSuper ||
+    isCentralPayroll ||
+    roleNames.some((n) => n.includes("payroll")) ||
+    roleKeys.some((k) => k.includes("payroll"));
+
+  const isFinance =
+    isSuper ||
+    roleNames.some((n) => n.includes("finance") || n.includes("account")) ||
+    roleKeys.some((k) => k.includes("finance"));
+
+  const isAuditor =
+    isSuper ||
+    roleNames.some((n) => n.includes("audit")) ||
+    roleKeys.some((k) => k.includes("audit") || k.includes("auditor"));
+
+  const isReporting =
+    isSuper ||
+    roleNames.some((n) => n.includes("reporting")) ||
+    roleKeys.some((k) => k.includes("reporting"));
+
+  const isHelpdesk =
+    isSuper ||
+    roleNames.some((n) => n.includes("helpdesk") || n.includes("support")) ||
+    roleKeys.some((k) => k.includes("helpdesk"));
+
+  const isEmployee =
+    roleNames.some((n) => n.includes("employee") || n.includes("self-service")) ||
+    roleKeys.some((k) => k.includes("employee"));
+
+  const pSet = new Set(permissions.map((p) => p.toLowerCase()));
+  const hasPerm = (prefix: string) => {
+    const pLow = prefix.toLowerCase();
+    for (const p of pSet) {
+      if (p === pLow || p.startsWith(pLow + ".") || p.startsWith(pLow + ":")) return true;
+    }
+    return false;
+  };
+
+  const modules: string[] = ["Dashboard", "dashboard", "/admin"];
+
+  // Employees List
+  if (isSuper || isHr || isMdaAdmin || isDeptHead || isAuditor || isCentralPayroll || isReporting || hasPerm("employees")) {
+    modules.push("Employees", "Employees List", "employees", "employee-list", "/admin/employees");
+  }
+
+  // Core HR
+  if (isSuper || isHr || isMdaAdmin || isDeptHead || isAuditor || hasPerm("corehr") || hasPerm("hr")) {
+    modules.push("Core HR", "core-hr", "corehr", "/admin/core-hr");
+  }
+
+  // Performance
+  if (isSuper || isHr || isDeptHead || isAuditor || hasPerm("performance")) {
+    modules.push("Performance", "performance", "/admin/performance");
+  }
+
+  // Organization
+  if (isSuper || isHr || isMdaAdmin || isAuditor || isCentralAccess || hasPerm("organization")) {
+    modules.push("Organization", "organization", "/admin/organization");
+  }
+
+  // Timesheets
+  if (isSuper || isHr || isMdaAdmin || isDeptHead || isAuditor || isEmployee || hasPerm("timesheets") || hasPerm("attendance") || hasPerm("leaves")) {
+    modules.push("Timesheets", "timesheets", "/admin/timesheets");
+  }
+
+  // HR Calendar
+  if (isSuper || isHr || isMdaAdmin || isDeptHead || isAuditor || isEmployee || hasPerm("calendar") || hasPerm("events")) {
+    modules.push("HR Calendar", "hr-calendar", "calendar", "/admin/hr-calendar");
+  }
+
+  // HR Reports
+  if (isSuper || isAuditor || isReporting || isHr || isPayroll || isFinance || hasPerm("reports")) {
+    modules.push("HR Reports", "Reports", "hr-reports", "reports", "/admin/hr-reports");
+  }
+
+  // Recruitment
+  if (isSuper || isHr || isAuditor || hasPerm("recruitment")) {
+    modules.push("Recruitment", "recruitment", "/admin/recruitment");
+  }
+
+  // Training
+  if (isSuper || isHr || isDeptHead || isAuditor || hasPerm("training")) {
+    modules.push("Training", "training", "/admin/training");
+  }
+
+  // Events & Meetings
+  if (isSuper || isHr || isDeptHead || isAuditor || hasPerm("events") || hasPerm("calendar")) {
+    modules.push("Events & Meetings", "event-meetings", "events-meetings", "/admin/events-meetings");
+  }
+
+  // Payroll
+  if (isSuper || isPayroll || isAuditor || hasPerm("payroll")) {
+    modules.push("Payroll", "payroll", "/admin/payroll");
+  }
+
+  // Project Management
+  if (isSuper || isDeptHead || isAuditor || hasPerm("projects")) {
+    modules.push("Project Management", "project-managment", "project-management", "/admin/project-management");
+  }
+
+  // Support Tickets
+  if (isSuper || isHelpdesk || isCentralAccess || isHr || isPayroll || isEmployee || hasPerm("support") || hasPerm("tickets")) {
+    modules.push("Support Tickets", "support-tickets", "support", "/admin/support-tickets");
+  }
+
+  // Finance
+  if (isSuper || isFinance || isPayroll || isAuditor || hasPerm("finance")) {
+    modules.push("Finance", "finance", "/admin/finance");
+  }
+
+  // Assets
+  if (isSuper || isAuditor || hasPerm("assets")) {
+    modules.push("Assets", "assets", "/admin/assets");
+  }
+
+  // File Manager
+  if (isSuper || isCentralHr || isMdaAdmin || isAuditor || hasPerm("files")) {
+    modules.push("File Manager", "file-manager", "files", "/admin/file-manager");
+  }
+
+  // User Management
+  if (isSuper || isCentralAccess || isMdaAdmin || isHelpdesk || hasPerm("users")) {
+    modules.push("User Management", "users", "/admin/users");
+  }
+
+  // Roles
+  if (isSuper || isCentralAccess || isMdaAdmin || hasPerm("access.roles") || hasPerm("roles")) {
+    modules.push("Roles", "roles", "/admin/roles");
+  }
+
+  // Permissions
+  if (isSuper || isCentralAccess || hasPerm("access.permissions") || hasPerm("permissions")) {
+    modules.push("Permissions", "permissions", "/admin/permissions");
+  }
+
+  // Settings
+  if (isSuper || isCentralAccess || hasPerm("settings")) {
+    modules.push("Settings", "settings", "/admin/settings");
+  }
+
+  // Backup Database
+  if (isSuper || hasPerm("system.database") || hasPerm("database")) {
+    modules.push("Backup Database", "backup", "/admin/backup");
   }
 
   return Array.from(new Set(modules));
@@ -148,7 +298,10 @@ export function computeAccessibleModules(roles: UserRoleRecord[]): string[] {
 /**
  * Computes detailed module access entries for effective access drawer
  */
-export function computeDetailedModuleAccess(roles: UserRoleRecord[]) {
+export function computeDetailedModuleAccess(
+  roles: UserRoleRecord[],
+  permissions: string[] = []
+) {
   const roleNames = roles.map((r) => (r.name || "").toLowerCase());
   const roleKeys = roles.map((r) => (r.key || "").toLowerCase());
 
@@ -156,25 +309,75 @@ export function computeDetailedModuleAccess(roles: UserRoleRecord[]) {
     roleNames.some((n) => n.includes("super")) ||
     roleKeys.some((k) => k.includes("super"));
 
-  const isPayroll =
+  const isCentralAccess =
     isSuper ||
-    roleNames.some((n) => n.includes("payroll")) ||
-    roleKeys.some((k) => k.includes("payroll"));
+    roleNames.some((n) => n.includes("central access")) ||
+    roleKeys.some((k) => k.includes("central_access"));
 
-  const isHr =
+  const isCentralHr =
     isSuper ||
-    roleNames.some((n) => n.includes("hr")) ||
-    roleKeys.some((k) => k.includes("hr"));
+    roleNames.some((n) => n.includes("central hr")) ||
+    roleKeys.some((k) => k.includes("central_hr"));
 
-  const isAuditor =
+  const isCentralPayroll =
     isSuper ||
-    roleNames.some((n) => n.includes("audit")) ||
-    roleKeys.some((k) => k.includes("audit"));
+    roleNames.some((n) => n.includes("central payroll")) ||
+    roleKeys.some((k) => k.includes("central_payroll"));
 
   const isMdaAdmin =
     isSuper ||
     roleNames.some((n) => n.includes("mda admin")) ||
     roleKeys.includes("mda_admin");
+
+  const isDeptHead =
+    isSuper ||
+    roleNames.some((n) => n.includes("department head") || n.includes("dept head")) ||
+    roleKeys.includes("department_head");
+
+  const isHr =
+    isSuper ||
+    isCentralHr ||
+    roleNames.some((n) => n.includes("hr")) ||
+    roleKeys.some((k) => k.includes("hr"));
+
+  const isPayroll =
+    isSuper ||
+    isCentralPayroll ||
+    roleNames.some((n) => n.includes("payroll")) ||
+    roleKeys.some((k) => k.includes("payroll"));
+
+  const isFinance =
+    isSuper ||
+    roleNames.some((n) => n.includes("finance") || n.includes("account")) ||
+    roleKeys.some((k) => k.includes("finance"));
+
+  const isAuditor =
+    isSuper ||
+    roleNames.some((n) => n.includes("audit")) ||
+    roleKeys.some((k) => k.includes("audit") || k.includes("auditor"));
+
+  const isReporting =
+    isSuper ||
+    roleNames.some((n) => n.includes("reporting")) ||
+    roleKeys.some((k) => k.includes("reporting"));
+
+  const isHelpdesk =
+    isSuper ||
+    roleNames.some((n) => n.includes("helpdesk") || n.includes("support")) ||
+    roleKeys.some((k) => k.includes("helpdesk"));
+
+  const isEmployee =
+    roleNames.some((n) => n.includes("employee") || n.includes("self-service")) ||
+    roleKeys.some((k) => k.includes("employee"));
+
+  const pSet = new Set(permissions.map((p) => p.toLowerCase()));
+  const hasPerm = (prefix: string) => {
+    const pLow = prefix.toLowerCase();
+    for (const p of pSet) {
+      if (p === pLow || p.startsWith(pLow + ".") || p.startsWith(pLow + ":")) return true;
+    }
+    return false;
+  };
 
   return [
     {
@@ -185,45 +388,87 @@ export function computeDetailedModuleAccess(roles: UserRoleRecord[]) {
     },
     {
       name: "Employee Management",
-      accessible: isSuper || isHr || isMdaAdmin,
-      access_level: isSuper || isHr ? "Full Management" : isMdaAdmin ? "MDA Scope Only" : "Read Only",
+      accessible: isSuper || isHr || isMdaAdmin || isDeptHead || isAuditor || isCentralPayroll || isReporting || hasPerm("employees"),
+      access_level: isSuper || isHr ? "Full Management" : isMdaAdmin ? "MDA Scope Only" : isAuditor ? "Audit Read-Only" : "View Records",
       resource: "employees",
     },
     {
       name: "Payroll Operations",
-      accessible: isPayroll,
-      access_level: roleNames.some((r) => r.includes("approver")) ? "Approval & Initiation" : "Calculation Only",
+      accessible: isSuper || isPayroll || isAuditor || hasPerm("payroll"),
+      access_level: isSuper || isCentralPayroll ? "Full Oversight & Approval" : isPayroll ? "Preparation & Processing" : "Audit Review",
       resource: "payroll",
     },
     {
       name: "Core HR & Approvals",
-      accessible: isSuper || isHr || isMdaAdmin,
-      access_level: isSuper ? "Universal Approval" : "Department Scope",
+      accessible: isSuper || isHr || isMdaAdmin || isDeptHead || isAuditor || hasPerm("corehr") || hasPerm("hr"),
+      access_level: isSuper ? "Universal Approval" : isMdaAdmin || isDeptHead ? "Unit / Department Scope" : "HR Processing",
       resource: "core-hr",
     },
     {
       name: "Finance & Accounts",
-      accessible: isSuper || isPayroll,
-      access_level: isSuper ? "Full Access" : "Disbursement Ledger",
+      accessible: isSuper || isFinance || isPayroll || isAuditor || hasPerm("finance"),
+      access_level: isSuper ? "Full Financial Control" : isFinance ? "Disbursement & Accounting" : "Ledger Audit",
       resource: "finance",
     },
     {
       name: "HR Reports & Compliance",
-      accessible: true,
-      access_level: isAuditor ? "Full Audit Read-Out" : "Operational Reports",
+      accessible: isSuper || isAuditor || isReporting || isHr || isPayroll || isFinance || hasPerm("reports"),
+      access_level: isAuditor ? "Full Audit Read-Out" : isSuper || isReporting ? "Complete Statutory Reports" : "Operational Reports",
       resource: "hr-reports",
     },
     {
+      name: "Organization Structure",
+      accessible: isSuper || isHr || isMdaAdmin || isAuditor || isCentralAccess || hasPerm("organization"),
+      access_level: isSuper ? "Full Structure Configuration" : "Unit / MDA View",
+      resource: "organization",
+    },
+    {
+      name: "Timesheets & Attendance",
+      accessible: isSuper || isHr || isMdaAdmin || isDeptHead || isAuditor || isEmployee || hasPerm("timesheets"),
+      access_level: isSuper || isHr ? "Full Management" : isDeptHead ? "Department Approvals" : "Self-Service",
+      resource: "timesheets",
+    },
+    {
+      name: "HR Calendar & Leaves",
+      accessible: isSuper || isHr || isMdaAdmin || isDeptHead || isAuditor || isEmployee || hasPerm("calendar"),
+      access_level: isSuper || isHr ? "Full Calendar Management" : "View Events & Leaves",
+      resource: "hr-calendar",
+    },
+    {
+      name: "Recruitment & Onboarding",
+      accessible: isSuper || isHr || isAuditor || hasPerm("recruitment"),
+      access_level: isSuper || isHr ? "Full Recruitment Cycle" : "Audit Review",
+      resource: "recruitment",
+    },
+    {
+      name: "Training & Development",
+      accessible: isSuper || isHr || isDeptHead || isAuditor || hasPerm("training"),
+      access_level: isSuper || isHr ? "Program Coordination" : "Nomination & View",
+      resource: "training",
+    },
+    {
+      name: "Support Tickets & Helpdesk",
+      accessible: isSuper || isHelpdesk || isCentralAccess || isHr || isPayroll || isEmployee || hasPerm("support") || hasPerm("tickets"),
+      access_level: isSuper || isHelpdesk ? "Ticket Resolution & Escalation" : "Submit & Track",
+      resource: "support-tickets",
+    },
+    {
       name: "User Management & Security",
-      accessible: isSuper,
-      access_level: isSuper ? "Full Administration" : "No Access",
+      accessible: isSuper || isCentralAccess || isMdaAdmin || hasPerm("users"),
+      access_level: isSuper ? "Full Administration" : isCentralAccess ? "Provisioning & Roles" : isMdaAdmin ? "MDA Account Management" : "No Access",
       resource: "users",
     },
     {
       name: "Role & Permission Configuration",
-      accessible: isSuper,
-      access_level: isSuper ? "Full Administration" : "No Access",
+      accessible: isSuper || isCentralAccess || hasPerm("access.roles") || hasPerm("access.permissions"),
+      access_level: isSuper ? "Full RBAC Management" : isCentralAccess ? "Role Assignment" : "No Access",
       resource: "permissions",
+    },
+    {
+      name: "Database Backup & Restore",
+      accessible: isSuper || hasPerm("system.database"),
+      access_level: isSuper ? "Full Database Operations" : "No Access",
+      resource: "backup",
     },
   ];
 }
