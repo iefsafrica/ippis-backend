@@ -33,6 +33,10 @@ type UpdateCompanyBody = {
   status?: 'active' | 'inactive';
 };
 
+export async function OPTIONS(req: NextRequest) {
+  return handleOptions(req);
+}
+
 // -------------------------
 // GET
 // -------------------------
@@ -44,10 +48,7 @@ export async function GET(req: NextRequest) {
     const id = Number(idParam);
 
     if (isNaN(id)) {
-      return NextResponse.json(
-        { success: false, message: 'Invalid ID' },
-        { status: 400 }
-      );
+      return withCors(req, { success: false, message: 'Invalid ID' }, 400);
     }
 
     const result = await sql`
@@ -57,13 +58,10 @@ export async function GET(req: NextRequest) {
     const company = result[0] as Company | undefined;
 
     if (!company) {
-      return NextResponse.json(
-        { success: false, message: 'Company not found' },
-        { status: 404 }
-      );
+      return withCors(req, { success: false, message: 'Company not found' }, 404);
     }
 
-    return NextResponse.json({ success: true, data: company });
+    return withCors(req, { success: true, data: company });
   }
 
   const result = await sql`
@@ -85,10 +83,7 @@ export async function POST(req: NextRequest) {
   const { name, email, phone, status } = body;
 
   if (!name || typeof name !== 'string') {
-    return NextResponse.json(
-      { success: false, message: 'Name is required' },
-      { status: 400 }
-    );
+    return withCors(req, { success: false, message: 'Name is required' }, 400);
   }
 
   // Get last company_code
@@ -129,15 +124,12 @@ export async function POST(req: NextRequest) {
   const inserted = result[0] as Company | undefined;
 
   if (!inserted) {
-    return NextResponse.json(
-      { success: false, message: 'Failed to create company' },
-      { status: 500 }
-    );
+    return withCors(req, { success: false, message: 'Failed to create company' }, 500);
   }
 
   await runAudited(req, auth.ctx, { action: "organization.company.created", targetType: "organization.company", details: {} }, []);
 
-  return NextResponse.json({ success: true, data: inserted });
+  return withCors(req, { success: true, data: inserted });
 }
 
 // -------------------------
@@ -152,10 +144,7 @@ export async function PUT(req: NextRequest) {
   const { id, name, email, phone, status } = body;
 
   if (!id || typeof id !== 'number') {
-    return NextResponse.json(
-      { success: false, message: 'Valid company ID is required' },
-      { status: 400 }
-    );
+    return withCors(req, { success: false, message: 'Valid company ID is required' }, 400);
   }
 
   const result = await sql`
@@ -172,15 +161,12 @@ export async function PUT(req: NextRequest) {
   const updated = result[0] as Company | undefined;
 
   if (!updated) {
-    return NextResponse.json(
-      { success: false, message: 'Company not found' },
-      { status: 404 }
-    );
+    return withCors(req, { success: false, message: 'Company not found' }, 404);
   }
 
   await runAudited(req, auth.ctx, { action: "organization.company.updated", targetType: "organization.company", details: {} }, []);
 
-  return NextResponse.json({ success: true, data: updated });
+  return withCors(req, { success: true, data: updated });
 }
 
 // -------------------------
@@ -194,19 +180,13 @@ export async function DELETE(req: NextRequest) {
   const idParam = searchParams.get('id');
 
   if (!idParam) {
-    return NextResponse.json(
-      { success: false, message: 'Company ID is required' },
-      { status: 400 }
-    );
+    return withCors(req, { success: false, message: 'Company ID is required' }, 400);
   }
 
   const id = Number(idParam);
 
   if (isNaN(id)) {
-    return NextResponse.json(
-      { success: false, message: 'Invalid ID' },
-      { status: 400 }
-    );
+    return withCors(req, { success: false, message: 'Invalid ID' }, 400);
   }
 
   const result = await sql`
@@ -218,15 +198,12 @@ export async function DELETE(req: NextRequest) {
   const deleted = result[0] as Company | undefined;
 
   if (!deleted) {
-    return NextResponse.json(
-      { success: false, message: 'Company not found' },
-      { status: 404 }
-    );
+    return withCors(req, { success: false, message: 'Company not found' }, 404);
   }
 
   await runAudited(req, auth.ctx, { action: "organization.company.deleted", targetType: "organization.company", details: {} }, []);
 
-  return NextResponse.json({
+  return withCors(req, {
     success: true,
     message: 'Company deleted successfully',
     data: deleted,

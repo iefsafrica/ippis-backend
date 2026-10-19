@@ -28,6 +28,10 @@ type UpdateDepartmentBody = {
   status?: 'active' | 'inactive';
 };
 
+export async function OPTIONS(req: NextRequest) {
+  return handleOptions(req);
+}
+
 // =========================
 // GET: List all OR Get by ID
 // =========================
@@ -44,13 +48,10 @@ export async function GET(req: NextRequest) {
       const department = result.at(0);
 
       if (!department) {
-        return NextResponse.json(
-          { success: false, message: 'Department not found' },
-          { status: 404 }
-        );
+        return withCors(req, { success: false, message: 'Department not found' }, 404);
       }
 
-      return NextResponse.json({
+      return withCors(req, {
         success: true,
         data: {
           id: String(department.id),
@@ -83,10 +84,7 @@ export async function GET(req: NextRequest) {
 
   } catch (error) {
     console.error('Department GET error:', error);
-    return NextResponse.json(
-      { success: false, message: 'Something went wrong' },
-      { status: 500 }
-    );
+    return withCors(req, { success: false, message: 'Something went wrong' }, 500);
   }
 }
 
@@ -102,10 +100,7 @@ export async function POST(req: NextRequest) {
     const { name, status } = body;
 
     if (!name) {
-      return NextResponse.json(
-        { success: false, message: 'Department name is required' },
-        { status: 400 }
-      );
+      return withCors(req, { success: false, message: 'Department name is required' }, 400);
     }
 
     // 🔹 Auto get first company
@@ -116,10 +111,7 @@ export async function POST(req: NextRequest) {
     const company = companyResult.at(0);
 
     if (!company) {
-      return NextResponse.json(
-        { success: false, message: 'No company found. Create a company first.' },
-        { status: 400 }
-      );
+      return withCors(req, { success: false, message: 'No company found. Create a company first.' }, 400);
     }
 
     const result = await sql`
@@ -131,15 +123,12 @@ export async function POST(req: NextRequest) {
     const department = result.at(0);
 
     if (!department) {
-      return NextResponse.json(
-        { success: false, message: 'Failed to create department' },
-        { status: 500 }
-      );
+      return withCors(req, { success: false, message: 'Failed to create department' }, 500);
     }
 
     await runAudited(req, auth.ctx, { action: "organization.department.created", targetType: "organization.department", details: {} }, []);
 
-    return NextResponse.json({
+    return withCors(req, {
       success: true,
       data: {
         id: String(department.id),
@@ -152,10 +141,7 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     console.error('Department POST error:', error);
-    return NextResponse.json(
-      { success: false, message: 'Failed to create department' },
-      { status: 500 }
-    );
+    return withCors(req, { success: false, message: 'Failed to create department' }, 500);
   }
 }
 
@@ -171,10 +157,7 @@ export async function PUT(req: NextRequest) {
     const { id, name, status } = body;
 
     if (!id) {
-      return NextResponse.json(
-        { success: false, message: 'Department ID is required' },
-        { status: 400 }
-      );
+      return withCors(req, { success: false, message: 'Department ID is required' }, 400);
     }
 
     const result = await sql`
@@ -189,15 +172,12 @@ export async function PUT(req: NextRequest) {
     const department = result.at(0);
 
     if (!department) {
-      return NextResponse.json(
-        { success: false, message: 'Department not found' },
-        { status: 404 }
-      );
+      return withCors(req, { success: false, message: 'Department not found' }, 404);
     }
 
     await runAudited(req, auth.ctx, { action: "organization.department.updated", targetType: "organization.department", details: {} }, []);
 
-    return NextResponse.json({
+    return withCors(req, {
       success: true,
       data: {
         id: String(department.id),
@@ -210,10 +190,7 @@ export async function PUT(req: NextRequest) {
 
   } catch (error) {
     console.error('Department PUT error:', error);
-    return NextResponse.json(
-      { success: false, message: 'Failed to update department' },
-      { status: 500 }
-    );
+    return withCors(req, { success: false, message: 'Failed to update department' }, 500);
   }
 }
 
@@ -229,10 +206,7 @@ export async function DELETE(req: NextRequest) {
     const id = searchParams.get('id');
 
     if (!id) {
-      return NextResponse.json(
-        { success: false, message: 'Department ID is required' },
-        { status: 400 }
-      );
+      return withCors(req, { success: false, message: 'Department ID is required' }, 400);
     }
 
     const result = await sql`
@@ -243,15 +217,12 @@ export async function DELETE(req: NextRequest) {
     const department = result.at(0);
 
     if (!department) {
-      return NextResponse.json(
-        { success: false, message: 'Department not found' },
-        { status: 404 }
-      );
+      return withCors(req, { success: false, message: 'Department not found' }, 404);
     }
 
     await runAudited(req, auth.ctx, { action: "organization.department.deleted", targetType: "organization.department", details: {} }, []);
 
-    return NextResponse.json({
+    return withCors(req, {
       success: true,
       message: 'Department deleted successfully',
       data: {
@@ -265,9 +236,6 @@ export async function DELETE(req: NextRequest) {
 
   } catch (error) {
     console.error('Department DELETE error:', error);
-    return NextResponse.json(
-      { success: false, message: 'Failed to delete department' },
-      { status: 500 }
-    );
+    return withCors(req, { success: false, message: 'Failed to delete department' }, 500);
   }
 }

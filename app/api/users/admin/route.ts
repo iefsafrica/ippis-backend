@@ -232,6 +232,31 @@ export async function POST(req: NextRequest) {
       department_id && !isNaN(Number(department_id)) ? Number(department_id) : null
     );
 
+    // Verify company and department exist in DB to prevent foreign key crashes
+    let finalCompanyId = validScope.company_id;
+    let finalDeptId = validScope.department_id;
+
+    if (finalCompanyId !== null) {
+      const compRows = await db`SELECT id FROM companies WHERE id = ${finalCompanyId}`;
+      if (compRows.length === 0) {
+        const fallbackComp = await db`SELECT id FROM companies LIMIT 1`;
+        finalCompanyId = fallbackComp[0]?.id ? Number(fallbackComp[0].id) : null;
+      }
+    }
+
+    if (finalDeptId !== null) {
+      const deptRows = await db`SELECT id FROM departments WHERE id = ${finalDeptId}`;
+      if (deptRows.length === 0) {
+        finalDeptId = null;
+      }
+    }
+
+    const verifiedScope = resolveValidScope(
+      scope_level,
+      finalCompanyId,
+      finalDeptId
+    );
+
     // Insert user account
     const insertedUsers = await db`
       INSERT INTO admin_users (
@@ -241,7 +266,7 @@ export async function POST(req: NextRequest) {
       )
       VALUES (
         ${cleanUsername}, ${cleanEmail}, ${password_hash}, ${full_name}, ${cleanStaffId}, ${phone || null},
-        ${validScope.company_id}, ${validScope.department_id}, ${validScope.scope_level}, 'admin', ${isActive}, ${userStatus}, ${notes || null},
+        ${verifiedScope.company_id}, ${verifiedScope.department_id}, ${verifiedScope.scope_level}, 'admin', ${isActive}, ${userStatus}, ${notes || null},
         NOW(), NOW()
       )
       RETURNING *
@@ -268,7 +293,7 @@ export async function POST(req: NextRequest) {
     for (const rId of roleIdList) {
       await db`
         INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, assigned_by, reason)
-        VALUES (${String(newUserId)}, ${rId}, ${validScope.scope_level}, ${validScope.company_id}, ${validScope.department_id}, ${ctx.userId}, ${notes || "Initial account creation"})
+        VALUES (${String(newUserId)}, ${rId}, ${verifiedScope.scope_level}, ${verifiedScope.company_id}, ${verifiedScope.department_id}, ${ctx.userId}, ${notes || "Initial account creation"})
         ON CONFLICT DO NOTHING
       `;
     }
@@ -288,9 +313,9 @@ export async function POST(req: NextRequest) {
           full_name,
           staff_id: newUser.staff_id,
           role_ids: roleIdList,
-          mda_id: validScope.company_id,
-          department_id: validScope.department_id,
-          scope_level: validScope.scope_level,
+          mda_id: verifiedScope.company_id,
+          department_id: verifiedScope.department_id,
+          scope_level: verifiedScope.scope_level,
         },
       },
       []
@@ -303,11 +328,11 @@ export async function POST(req: NextRequest) {
 
     // Send credential login email with HTML formatting to employee/user
     const primaryRole = allRoles.find((r) => roleIdList.includes(r.id))?.name || "Officer / User";
-    const mdaRow = validScope.company_id
-      ? (await db`SELECT name FROM companies WHERE id = ${validScope.company_id}`)[0]
+    const mdaRow = verifiedScope.company_id
+      ? (await db`SELECT name FROM companies WHERE id = ${verifiedScope.company_id}`)[0]
       : null;
-    const deptRow = validScope.department_id
-      ? (await db`SELECT name FROM departments WHERE id = ${validScope.department_id}`)[0]
+    const deptRow = verifiedScope.department_id
+      ? (await db`SELECT name FROM departments WHERE id = ${verifiedScope.department_id}`)[0]
       : null;
 
     sendEmployeeCredentialsEmail({
