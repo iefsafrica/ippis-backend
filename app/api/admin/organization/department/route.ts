@@ -62,8 +62,13 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    const companyIdParam = searchParams.get('company_id') || searchParams.get('mda_id');
+    const companyId = companyIdParam && !isNaN(Number(companyIdParam)) ? Number(companyIdParam) : null;
+
     const result = await sql`
-      SELECT * FROM departments ORDER BY created_at DESC
+      SELECT * FROM departments
+      WHERE (${companyId}::int IS NULL OR company_id = ${companyId})
+      ORDER BY name ASC, created_at DESC
     `;
 
     const departments: Department[] = result.map((row) => ({
@@ -74,7 +79,7 @@ export async function GET(req: NextRequest) {
       created_at: row.created_at,
     }));
 
-    return NextResponse.json({ success: true, data: departments });
+    return withCors(req, { success: true, data: departments });
 
   } catch (error) {
     console.error('Department GET error:', error);

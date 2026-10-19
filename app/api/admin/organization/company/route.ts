@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
     SELECT * FROM companies ORDER BY created_at DESC
   `;
 
-  return NextResponse.json({ success: true, data: result });
+  return withCors(req, { success: true, data: result });
 }
 
 // -------------------------
