@@ -821,3 +821,306 @@ Federal Republic of Nigeria`;
     return null;
   }
 }
+
+
+/**
+ * =========================================================================
+ * PASSWORD RESET REQUEST & CONFIRMATION EMAILS (HTML)
+ * Supports both ACTIVE and PENDING employees
+ * =========================================================================
+ */
+
+export interface PasswordResetEmailPayload {
+  to: string;
+  fullName: string;
+  resetUrl: string;
+  token: string;
+  employeeId?: string | undefined;
+  isPending?: boolean | undefined;
+  statusLabel?: string | undefined;
+  expiresInMinutes?: number | undefined;
+}
+
+export interface PasswordChangedEmailPayload {
+  to: string;
+  fullName: string;
+  loginUrl?: string | undefined;
+}
+
+function generatePasswordResetEmailHtml(payload: PasswordResetEmailPayload): string {
+  const {
+    to,
+    fullName,
+    resetUrl,
+    token,
+    employeeId,
+    isPending = false,
+    statusLabel = isPending ? "Pending Application" : "Active Employee",
+    expiresInMinutes = 60,
+  } = payload;
+
+  const fullResetLink = resetUrl.includes("?")
+    ? `${resetUrl}&token=${token}`
+    : `${resetUrl}?token=${token}`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Password Reset Request - IPPIS Portal</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);">
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #065f46 0%, #047857 50%, #059669 100%); padding: 36px 28px; text-align: center;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 0.5px;">IPPIS HRMS & SELF-SERVICE</h1>
+              <p style="margin: 6px 0 0; color: #a7f3d0; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Federal Republic of Nigeria</p>
+            </td>
+          </tr>
+          <!-- Body Content -->
+          <tr>
+            <td style="padding: 36px 32px;">
+              <div style="background-color: #fef3c7; border-radius: 6px; padding: 8px 14px; display: inline-block; margin-bottom: 16px;">
+                <span style="color: #92400e; font-size: 13px; font-weight: 700;">&#128274; PASSWORD RESET REQUEST</span>
+              </div>
+              <h2 style="margin: 0 0 16px; color: #0f172a; font-size: 20px; font-weight: 600;">Dear ${fullName},</h2>
+              <p style="margin: 0 0 16px; color: #475569; font-size: 15px; line-height: 1.6;">
+                We received an official request to reset the password associated with your <strong>Integrated Personnel and Payroll Information System (IPPIS)</strong> account (${to}).
+              </p>
+              
+              <!-- Account Context Card -->
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #008751; border-radius: 8px; padding: 18px 22px; margin-bottom: 24px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size: 14px; line-height: 1.8;">
+                  <tr>
+                    <td style="color: #64748b; width: 160px; padding: 4px 0; font-weight: 500;">Account Category:</td>
+                    <td style="color: #0f172a; font-weight: 700; padding: 4px 0;">${statusLabel}</td>
+                  </tr>
+                  ${employeeId ? `
+                  <tr>
+                    <td style="color: #64748b; padding: 4px 0; font-weight: 500;">${isPending ? 'Tracking ID:' : 'Employee ID:'}</td>
+                    <td style="color: #047857; font-family: monospace; font-size: 16px; font-weight: 800; padding: 4px 0;">${employeeId}</td>
+                  </tr>` : ''}
+                  <tr>
+                    <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Registered Email:</td>
+                    <td style="color: #0f172a; font-weight: 600; padding: 4px 0;">${to}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- Button CTA -->
+              <div style="text-align: center; margin: 28px 0 24px;">
+                <a href="${fullResetLink}" style="background: linear-gradient(135deg, #065f46 0%, #059669 100%); color: #ffffff; padding: 14px 36px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block; box-shadow: 0 2px 4px rgba(4, 120, 87, 0.3);">
+                  Reset Your Password &rarr;
+                </a>
+              </div>
+
+              <!-- Expiry Alert -->
+              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 18px; margin-bottom: 24px;">
+                <p style="margin: 0; color: #166534; font-size: 13px; line-height: 1.5;">
+                  &#9200; <strong>Time-Sensitive:</strong> For your security, this password reset link will expire in <strong>${expiresInMinutes} minutes</strong>. If expired, you may request a new link at any time.
+                </p>
+              </div>
+
+              <!-- Fallback Direct URL -->
+              <p style="margin: 0 0 8px; color: #64748b; font-size: 13px; line-height: 1.6;">
+                If the button above does not open, copy and paste this link into your web browser:
+              </p>
+              <p style="margin: 0 0 24px; color: #0284c7; font-size: 12px; word-break: break-all; font-family: monospace; background-color: #f8fafc; padding: 10px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                ${fullResetLink}
+              </p>
+
+              <!-- Security Notice -->
+              <div style="border-top: 1px solid #e2e8f0; padding-top: 16px;">
+                <p style="margin: 0; color: #94a3b8; font-size: 12px; line-height: 1.5;">
+                  <strong>Did not request this change?</strong> If you did not make this request, you can safely disregard this email. Your current password remains secure and active.
+                </p>
+              </div>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; text-align: center;">
+              <p style="margin: 0 0 4px; color: #64748b; font-size: 12px; font-weight: 600;">
+                Integrated Personnel and Payroll Information System (IPPIS)
+              </p>
+              <p style="margin: 0 0 6px; color: #94a3b8; font-size: 12px;">
+                Office of the Accountant-General of the Federation &bull; Federal Republic of Nigeria
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+function generatePasswordChangedEmailHtml(payload: PasswordChangedEmailPayload): string {
+  const {
+    to,
+    fullName,
+    loginUrl = `${process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app"}/login`,
+  } = payload;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Security Alert: Password Changed - IPPIS</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);">
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #065f46 0%, #047857 50%, #059669 100%); padding: 36px 28px; text-align: center;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 0.5px;">IPPIS HRMS & SECURITY</h1>
+              <p style="margin: 6px 0 0; color: #a7f3d0; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Federal Republic of Nigeria</p>
+            </td>
+          </tr>
+          <!-- Body Content -->
+          <tr>
+            <td style="padding: 36px 32px;">
+              <div style="background-color: #ecfdf5; border-radius: 6px; padding: 8px 14px; display: inline-block; margin-bottom: 16px;">
+                <span style="color: #065f46; font-size: 13px; font-weight: 700;">&#10003; PASSWORD CHANGED SUCCESSFULLY</span>
+              </div>
+              <h2 style="margin: 0 0 16px; color: #0f172a; font-size: 20px; font-weight: 600;">Hello ${fullName},</h2>
+              <p style="margin: 0 0 16px; color: #475569; font-size: 15px; line-height: 1.6;">
+                This is an official security confirmation that the password for your IPPIS portal account (${to}) has been successfully updated.
+              </p>
+              
+              <div style="text-align: center; margin: 24px 0 24px;">
+                <a href="${loginUrl}" style="background: linear-gradient(135deg, #065f46 0%, #059669 100%); color: #ffffff; padding: 12px 30px; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block;">
+                  Sign In to IPPIS &rarr;
+                </a>
+              </div>
+
+              <div style="border-top: 1px solid #e2e8f0; padding-top: 16px;">
+                <p style="margin: 0; color: #dc2626; font-size: 12px; line-height: 1.5; font-weight: 500;">
+                  If you did not authorize this change, please contact the IPPIS Helpdesk and your Ministry System Administrator immediately to lock your account.
+                </p>
+              </div>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; text-align: center;">
+              <p style="margin: 0 0 4px; color: #64748b; font-size: 12px; font-weight: 600;">
+                Integrated Personnel and Payroll Information System (IPPIS)
+              </p>
+              <p style="margin: 0 0 6px; color: #94a3b8; font-size: 12px;">
+                Office of the Accountant-General of the Federation &bull; Federal Republic of Nigeria
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
+ * Sends a password reset email with secure token link to an active or pending employee.
+ */
+export async function sendPasswordResetEmail(payload: PasswordResetEmailPayload) {
+  const { to, fullName, resetUrl, token, expiresInMinutes = 60 } = payload;
+  console.log(`[Password Reset Email] Sending reset link to ${fullName} (${to})`);
+
+  const recipients = Array.from(
+    new Set([
+      to,
+      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+    ])
+  ).filter(Boolean);
+
+  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  if (!hasCredentials) {
+    console.warn(`[Password Reset Email] SMTP credentials not set, email skipped for: ${to}`);
+    return null;
+  }
+
+  const fullResetLink = resetUrl.includes("?")
+    ? `${resetUrl}&token=${token}`
+    : `${resetUrl}?token=${token}`;
+
+  const plainText = `Dear ${fullName},
+
+We received a request to reset your password on the Integrated Personnel and Payroll Information System (IPPIS).
+
+Reset Link: ${fullResetLink}
+
+This link is valid for ${expiresInMinutes} minutes. If you did not request this, please ignore this email.
+
+Integrated Personnel and Payroll Information System (IPPIS)
+Federal Republic of Nigeria`;
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"IPPIS Security" <${process.env.SMTP_USER}>`,
+      to: recipients.join(", "),
+      subject: "Password Reset Request - IPPIS Portal",
+      text: plainText,
+      html: generatePasswordResetEmailHtml(payload),
+    });
+
+    console.log(`[Password Reset Email] Sent successfully to ${recipients.join(", ")}. Message ID: ${info.messageId}`);
+    return info;
+  } catch (error: any) {
+    console.error(`[Password Reset Email] Failed to send to ${recipients.join(", ")}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Sends a password changed confirmation email.
+ */
+export async function sendPasswordChangedEmail(payload: PasswordChangedEmailPayload) {
+  const { to, fullName } = payload;
+  console.log(`[Password Changed Email] Sending confirmation to ${fullName} (${to})`);
+
+  const recipients = Array.from(
+    new Set([
+      to,
+      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+    ])
+  ).filter(Boolean);
+
+  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  if (!hasCredentials) {
+    console.warn(`[Password Changed Email] SMTP credentials not set, email skipped for: ${to}`);
+    return null;
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"IPPIS Security" <${process.env.SMTP_USER}>`,
+      to: recipients.join(", "),
+      subject: "Security Alert: Your IPPIS Password Has Been Changed",
+      text: `Hello ${fullName},
+
+This is an official security confirmation that the password for your IPPIS account (${to}) was successfully changed.
+
+If you did not authorize this, please contact IPPIS Helpdesk immediately.
+
+Integrated Personnel and Payroll Information System (IPPIS)`,
+      html: generatePasswordChangedEmailHtml(payload),
+    });
+
+    console.log(`[Password Changed Email] Sent successfully to ${recipients.join(", ")}. Message ID: ${info.messageId}`);
+    return info;
+  } catch (error: any) {
+    console.error(`[Password Changed Email] Failed to send to ${recipients.join(", ")}:`, error);
+    return null;
+  }
+}
