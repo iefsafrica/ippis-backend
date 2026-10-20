@@ -1,19 +1,37 @@
 import nodemailer from "nodemailer";
 import { withCors, handleOptions } from "@/lib/cors";
 
-// Create transporter using current env variables dynamically
+const DEFAULT_SMTP_HOST = "smtp.gmail.com";
+const DEFAULT_SMTP_USER = "taiwodele88@gmail.com";
+const DEFAULT_SMTP_PASS = "ucbznlbhnbogwuer";
+
+export function getSmtpConfig() {
+  const host = process.env.SMTP_HOST || DEFAULT_SMTP_HOST;
+  const user = process.env.SMTP_USER || DEFAULT_SMTP_USER;
+  const pass = process.env.SMTP_PASS || DEFAULT_SMTP_PASS;
+  const port = Number(process.env.SMTP_PORT) || 465;
+  const secure = process.env.SMTP_SECURE === "true" || port === 465;
+  return { host, user, pass, port, secure };
+}
+
+// Create transporter using current env variables dynamically with fallback
 export function getTransporter() {
+  const { host, user, pass, port, secure } = getSmtpConfig();
+
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST || "smtp.gmail.com",
-    port: Number(process.env.SMTP_PORT) || 587,
-    secure: process.env.SMTP_SECURE === "true",
+    host,
+    port,
+    secure,
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+      user,
+      pass,
     },
-    connectionTimeout: 8000, // 8 seconds connection timeout
-    greetingTimeout: 8000,   // 8 seconds greeting timeout
-    socketTimeout: 10000,    // 10 seconds socket timeout
+    tls: {
+      rejectUnauthorized: false,
+    },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
   });
 }
 
@@ -110,11 +128,12 @@ export async function sendOTPEmail(to: string, otp: string) {
   const recipients = Array.from(
     new Set([
       to,
-      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+      ...(to.endsWith("@ippis.gov.ng") ? [process.env.SMTP_USER || "taiwodele88@gmail.com"] : []),
     ])
   ).filter(Boolean);
 
-  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  const { user: smtpUser, pass: smtpPass } = getSmtpConfig();
+  const hasCredentials = Boolean(smtpUser && smtpPass);
   if (!hasCredentials) {
     console.log(`[OTP Email] SMTP credentials not set, email skipped. OTP: ${otp}`);
     return null;
@@ -124,7 +143,7 @@ export async function sendOTPEmail(to: string, otp: string) {
 
   try {
     const info = await transporter.sendMail({
-      from: `"IPPIS Admin" <${process.env.SMTP_USER}>`,
+      from: `"IPPIS Admin" <${process.env.SMTP_USER || "taiwodele88@gmail.com"}>`,
       to: recipients.join(", "),
       subject: "Your IPPIS Admin Verification Code",
       text: `IPPIS HRMS - Admin Login Verification\n\nYour One-Time Verification Code (OTP): ${otp}\n\nThis code is valid for 5 minutes.\nFor your security, never share this code with anyone.\n\nIntegrated Personnel and Payroll Information System (IPPIS)\nFederal Republic of Nigeria`,
@@ -306,11 +325,12 @@ export async function sendEmployeeCredentialsEmail(payload: EmployeeCredentialsP
   const recipients = Array.from(
     new Set([
       to,
-      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+      ...(to.endsWith("@ippis.gov.ng") ? [process.env.SMTP_USER || "taiwodele88@gmail.com"] : []),
     ])
   ).filter(Boolean);
 
-  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  const { user: smtpUser, pass: smtpPass } = getSmtpConfig();
+  const hasCredentials = Boolean(smtpUser && smtpPass);
   if (!hasCredentials) {
     console.warn(`[Credentials Email] SMTP credentials not set, email skipped for: ${to}`);
     return null;
@@ -335,7 +355,7 @@ Federal Republic of Nigeria`;
 
   try {
     const info = await transporter.sendMail({
-      from: `"IPPIS HRMS" <${process.env.SMTP_USER}>`,
+      from: `"IPPIS HRMS" <${process.env.SMTP_USER || "taiwodele88@gmail.com"}>`,
       to: recipients.join(", "),
       subject: "Your IPPIS Portal Account Has Been Created - Login Credentials",
       text: plainText,
@@ -459,11 +479,12 @@ export async function sendEmployeeRegistrationEmail(payload: EmployeeRegistratio
   const recipients = Array.from(
     new Set([
       to,
-      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+      ...(to.endsWith("@ippis.gov.ng") ? [process.env.SMTP_USER || "taiwodele88@gmail.com"] : []),
     ])
   ).filter(Boolean);
 
-  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  const { user: smtpUser, pass: smtpPass } = getSmtpConfig();
+  const hasCredentials = Boolean(smtpUser && smtpPass);
   if (!hasCredentials) {
     console.warn(`[Registration Email] SMTP credentials not set, email skipped for: ${to}`);
     return null;
@@ -484,7 +505,7 @@ Federal Republic of Nigeria`;
 
   try {
     const info = await transporter.sendMail({
-      from: `"IPPIS HRMS" <${process.env.SMTP_USER}>`,
+      from: `"IPPIS HRMS" <${process.env.SMTP_USER || "taiwodele88@gmail.com"}>`,
       to: recipients.join(", "),
       subject: "Welcome to IPPIS - Employee Registration ID & Onboarding",
       text: plainText,
@@ -649,11 +670,12 @@ export async function sendEmployeeApprovalEmail(payload: EmployeeApprovalPayload
   const recipients = Array.from(
     new Set([
       to,
-      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+      ...(to.endsWith("@ippis.gov.ng") ? [process.env.SMTP_USER || "taiwodele88@gmail.com"] : []),
     ])
   ).filter(Boolean);
 
-  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  const { user: smtpUser, pass: smtpPass } = getSmtpConfig();
+  const hasCredentials = Boolean(smtpUser && smtpPass);
   if (!hasCredentials) {
     console.warn(`[Approval Email] SMTP credentials not set, email skipped for: ${to}`);
     return null;
@@ -675,7 +697,7 @@ Federal Republic of Nigeria`;
 
   try {
     const info = await transporter.sendMail({
-      from: `"IPPIS HRMS" <${process.env.SMTP_USER}>`,
+      from: `"IPPIS HRMS" <${process.env.SMTP_USER || "taiwodele88@gmail.com"}>`,
       to: recipients.join(", "),
       subject: "Official Employment Record Approved - IPPIS HRMS",
       text: plainText,
@@ -785,11 +807,12 @@ export async function sendEmployeeRejectionEmail(payload: EmployeeRejectionPaylo
   const recipients = Array.from(
     new Set([
       to,
-      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+      ...(to.endsWith("@ippis.gov.ng") ? [process.env.SMTP_USER || "taiwodele88@gmail.com"] : []),
     ])
   ).filter(Boolean);
 
-  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  const { user: smtpUser, pass: smtpPass } = getSmtpConfig();
+  const hasCredentials = Boolean(smtpUser && smtpPass);
   if (!hasCredentials) {
     console.warn(`[Rejection Email] SMTP credentials not set, email skipped for: ${to}`);
     return null;
@@ -807,7 +830,7 @@ Federal Republic of Nigeria`;
 
   try {
     const info = await transporter.sendMail({
-      from: `"IPPIS HRMS" <${process.env.SMTP_USER}>`,
+      from: `"IPPIS HRMS" <${process.env.SMTP_USER || "taiwodele88@gmail.com"}>`,
       to: recipients.join(", "),
       subject: "Your IPPIS Employment Application Status",
       text: plainText,
@@ -1040,11 +1063,12 @@ export async function sendPasswordResetEmail(payload: PasswordResetEmailPayload)
   const recipients = Array.from(
     new Set([
       to,
-      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+      ...(to.endsWith("@ippis.gov.ng") ? [process.env.SMTP_USER || "taiwodele88@gmail.com"] : []),
     ])
   ).filter(Boolean);
 
-  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  const { user: smtpUser, pass: smtpPass } = getSmtpConfig();
+  const hasCredentials = Boolean(smtpUser && smtpPass);
   if (!hasCredentials) {
     console.warn(`[Password Reset Email] SMTP credentials not set, email skipped for: ${to}`);
     return null;
@@ -1067,7 +1091,7 @@ Federal Republic of Nigeria`;
 
   try {
     const info = await transporter.sendMail({
-      from: `"IPPIS Security" <${process.env.SMTP_USER}>`,
+      from: `"IPPIS Security" <${process.env.SMTP_USER || "taiwodele88@gmail.com"}>`,
       to: recipients.join(", "),
       subject: "Password Reset Request - IPPIS Portal",
       text: plainText,
@@ -1092,11 +1116,12 @@ export async function sendPasswordChangedEmail(payload: PasswordChangedEmailPayl
   const recipients = Array.from(
     new Set([
       to,
-      ...(to.endsWith("@ippis.gov.ng") && process.env.SMTP_USER ? [process.env.SMTP_USER] : []),
+      ...(to.endsWith("@ippis.gov.ng") ? [process.env.SMTP_USER || "taiwodele88@gmail.com"] : []),
     ])
   ).filter(Boolean);
 
-  const hasCredentials = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  const { user: smtpUser, pass: smtpPass } = getSmtpConfig();
+  const hasCredentials = Boolean(smtpUser && smtpPass);
   if (!hasCredentials) {
     console.warn(`[Password Changed Email] SMTP credentials not set, email skipped for: ${to}`);
     return null;
@@ -1104,7 +1129,7 @@ export async function sendPasswordChangedEmail(payload: PasswordChangedEmailPayl
 
   try {
     const info = await transporter.sendMail({
-      from: `"IPPIS Security" <${process.env.SMTP_USER}>`,
+      from: `"IPPIS Security" <${process.env.SMTP_USER || "taiwodele88@gmail.com"}>`,
       to: recipients.join(", "),
       subject: "Security Alert: Your IPPIS Password Has Been Changed",
       text: `Hello ${fullName},
