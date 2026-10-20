@@ -512,14 +512,19 @@ export interface EmployeeApprovalPayload {
   position?: string | undefined;
   department?: string | undefined;
   loginUrl?: string | undefined;
+  username?: string | undefined;
+  temporaryPassword?: string | undefined;
 }
 
 function generateApprovalEmailHtml(payload: EmployeeApprovalPayload): string {
   const {
+    to,
     fullName,
     employeeId,
     position,
     department,
+    username = to,
+    temporaryPassword,
     loginUrl = `${process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app"}/login`,
   } = payload;
 
@@ -528,7 +533,7 @@ function generateApprovalEmailHtml(payload: EmployeeApprovalPayload): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Official Employment Approval - IPPIS</title>
+  <title>Official Employment Approval & Login Credentials - IPPIS</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 16px;">
@@ -550,14 +555,14 @@ function generateApprovalEmailHtml(payload: EmployeeApprovalPayload): string {
               </div>
               <h2 style="margin: 0 0 16px; color: #0f172a; font-size: 20px; font-weight: 600;">Congratulations, ${fullName}</h2>
               <p style="margin: 0 0 20px; color: #475569; font-size: 15px; line-height: 1.6;">
-                Your employment record has been officially approved and activated on the <strong>Integrated Personnel and Payroll Information System (IPPIS)</strong>.
+                Your employment record has been officially approved and activated on the <strong>Integrated Personnel and Payroll Information System (IPPIS)</strong>. Your employee self-service account has been created.
               </p>
               
               <!-- Official Employee ID Box -->
               <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #059669; border-radius: 8px; padding: 20px 24px; margin-bottom: 24px;">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size: 14px; line-height: 1.8;">
                   <tr>
-                    <td style="color: #64748b; width: 150px; padding: 4px 0; font-weight: 500;">Official Employee ID:</td>
+                    <td style="color: #64748b; width: 160px; padding: 4px 0; font-weight: 500;">Official Employee ID:</td>
                     <td style="color: #047857; font-family: monospace; font-size: 18px; font-weight: 800; padding: 4px 0;">${employeeId}</td>
                   </tr>
                   ${position ? `
@@ -577,10 +582,36 @@ function generateApprovalEmailHtml(payload: EmployeeApprovalPayload): string {
                 </table>
               </div>
 
+              ${temporaryPassword ? `
+              <!-- Login Credentials Card -->
+              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-left: 4px solid #16a34a; border-radius: 8px; padding: 20px 24px; margin-bottom: 24px;">
+                <p style="margin: 0 0 12px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #166534;">Your Employee Login Credentials</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size: 14px; line-height: 1.8;">
+                  <tr>
+                    <td style="color: #4b5563; width: 160px; padding: 4px 0; font-weight: 500;">Login Portal:</td>
+                    <td style="color: #0f172a; padding: 4px 0;"><a href="${loginUrl}" style="color: #059669; text-decoration: underline; font-weight: 600;">${loginUrl}</a></td>
+                  </tr>
+                  <tr>
+                    <td style="color: #4b5563; padding: 4px 0; font-weight: 500;">Username / Email:</td>
+                    <td style="color: #0f172a; font-weight: 700; padding: 4px 0;">${username || to}</td>
+                  </tr>
+                  <tr>
+                    <td style="color: #4b5563; padding: 6px 0; font-weight: 500;">Temporary Password:</td>
+                    <td style="padding: 6px 0;">
+                      <span style="font-family: 'Courier New', Courier, monospace; font-size: 16px; font-weight: 800; color: #166534; background-color: #dcfce7; padding: 4px 10px; border-radius: 4px; border: 1px solid #86efac; letter-spacing: 0.5px; display: inline-block;">${temporaryPassword}</span>
+                    </td>
+                  </tr>
+                </table>
+                <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid #dcfce7;">
+                  <span style="color: #854d0e; font-size: 12px; font-weight: 600;">&#9888; Security Requirement:</span>
+                  <span style="color: #713f12; font-size: 12px;"> You are required to change your temporary password immediately upon your first sign-in.</span>
+                </div>
+              </div>` : ''}
+
               <!-- Button CTA -->
               <div style="text-align: center; margin: 28px 0 24px;">
                 <a href="${loginUrl}" style="background: linear-gradient(135deg, #065f46 0%, #059669 100%); color: #ffffff; padding: 14px 32px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block; box-shadow: 0 2px 4px rgba(4, 120, 87, 0.3);">
-                  Access Employee Self-Service Portal &rarr;
+                  Log In to Employee Self-Service &rarr;
                 </a>
               </div>
 
@@ -633,8 +664,11 @@ export async function sendEmployeeApprovalEmail(payload: EmployeeApprovalPayload
 Your employment record has been officially approved and activated on IPPIS.
 
 Your Official Employee ID: ${employeeId}
+${payload.username ? `Username: ${payload.username}\n` : ''}${payload.temporaryPassword ? `Temporary Password: ${payload.temporaryPassword}\n` : ''}
+Portal URL: ${payload.loginUrl || `${process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app"}/login`}
 
-You may now access the Employee Self-Service portal.
+SECURITY REQUIREMENT:
+You are required to change your temporary password immediately upon your first sign-in. Never share your password or OTP with anyone.
 
 Integrated Personnel and Payroll Information System (IPPIS)
 Federal Republic of Nigeria`;

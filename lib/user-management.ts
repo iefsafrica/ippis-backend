@@ -176,6 +176,75 @@ export function computeAccessibleModules(
     roleNames.some((n) => n.includes("employee") || n.includes("self-service")) ||
     roleKeys.some((k) => k.includes("employee"));
 
+  const isApplicant =
+    roleNames.some((n) => n.includes("applicant")) ||
+    roleKeys.some((k) => k.includes("applicant"));
+
+  // Applicants who submitted an application can only access Application Status
+  if (isApplicant && !isSuper) {
+    return [
+      "Dashboard",
+      "dashboard",
+      "/admin",
+      "Application Status",
+      "application-status",
+      "/admin/application-status",
+    ];
+  }
+
+  // Pure Employee Self-Service users (without administrative roles)
+  const isPureEmployee =
+    isEmployee &&
+    !isSuper &&
+    !isCentralAccess &&
+    !isCentralHr &&
+    !isCentralPayroll &&
+    !isMdaAdmin &&
+    !isDeptHead &&
+    !isHr &&
+    !isPayroll &&
+    !isFinance &&
+    !isAuditor &&
+    !isReporting &&
+    !isHelpdesk;
+
+  if (isPureEmployee) {
+    return [
+      "Dashboard",
+      "dashboard",
+      "/admin",
+      "Overview",
+      "Profile",
+      "My Profile",
+      "profile",
+      "Attendance",
+      "attendance",
+      "Timesheets",
+      "timesheets",
+      "/admin/timesheets",
+      "Leaves",
+      "Leave Management",
+      "leaves",
+      "/admin/leaves",
+      "Payroll",
+      "Payslips",
+      "payroll",
+      "/admin/payroll",
+      "Tasks",
+      "Project Management",
+      "project-management",
+      "/admin/project-management",
+      "Documents",
+      "Document Management",
+      "documents",
+      "/admin/documents",
+      "Notifications",
+      "Announcements",
+      "notifications",
+      "/admin/notifications",
+    ];
+  }
+
   const pSet = new Set(permissions.map((p) => p.toLowerCase()));
   const hasPerm = (prefix: string) => {
     const pLow = prefix.toLowerCase();
@@ -186,6 +255,7 @@ export function computeAccessibleModules(
   };
 
   const modules: string[] = ["Dashboard", "dashboard", "/admin"];
+
 
   // Employees List
   if (isSuper || isHr || isMdaAdmin || isDeptHead || isAuditor || isCentralPayroll || isReporting || hasPerm("employees")) {
