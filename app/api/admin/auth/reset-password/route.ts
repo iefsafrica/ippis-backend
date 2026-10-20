@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const record = rows[0];
+    const record = rows[0] as any;
     const isExpired = new Date(record.expires_at) < new Date();
 
     if (isExpired) {
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = (await req.json().catch(() => ({}))) as any;
     const { token, newPassword, confirmPassword } = body;
 
     if (!token || typeof token !== "string") {
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const record = tokenRows[0];
+    const record = tokenRows[0] as any;
     const isExpired = new Date(record.expires_at) < new Date();
     if (isExpired) {
       return withCors(

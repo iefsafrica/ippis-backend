@@ -24,7 +24,7 @@ export async function OPTIONS(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = (await req.json().catch(() => ({}))) as any;
     const rawEmail = body.email || body.identifier;
 
     if (!rawEmail || typeof rawEmail !== "string") {
@@ -144,14 +144,14 @@ export async function POST(req: NextRequest) {
         )
         RETURNING id
       `;
-      adminUserId = Number(newRows[0].id);
+      adminUserId = Number((newRows[0] as any).id);
 
       // Assign role in user_roles
       const roleRows = await sql`SELECT id FROM roles WHERE key = ${assignedRole} LIMIT 1`;
       if (roleRows.length > 0) {
         await sql`
           INSERT INTO user_roles (user_id, role_id, scope_level, assigned_at)
-          VALUES (${String(adminUserId)}, ${roleRows[0].id}, 'self', NOW())
+          VALUES (${String(adminUserId)}, ${(roleRows[0] as any).id}, 'self', NOW())
           ON CONFLICT DO NOTHING
         `;
       }
