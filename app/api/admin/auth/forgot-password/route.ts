@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
     // 3. Check in pending_employees (Pending employees / applicants)
     let pendingEmployee: any = null;
     const pendingRows = await sql`
-      SELECT id, registration_id, firstname, surname, name, email, department, position, status, created_at
+      SELECT id, registration_id, firstname, surname, email, department, position, created_at
       FROM pending_employees
       WHERE LOWER(email) = ${email}
       LIMIT 1
@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
     const fullName =
       adminUser?.full_name ||
       activeEmployee?.name ||
-      (pendingEmployee ? `${pendingEmployee.firstname || ""} ${pendingEmployee.surname || ""}`.trim() || pendingEmployee.name : "") ||
+      (pendingEmployee ? `${pendingEmployee.firstname || ""} ${pendingEmployee.surname || ""}`.trim() : "") ||
       (applicantInfo ? `${applicantInfo.first_name || ""} ${applicantInfo.surname || ""}`.trim() : "") ||
       "IPPIS User";
 
@@ -125,8 +125,8 @@ export async function POST(req: NextRequest) {
     } else {
       console.log(`[Forgot Password] Auto-provisioning admin_users account for ${email} (isPending: ${isPending})`);
       const tempPw = await bcrypt.hash(generateResetToken(), 10);
-      const assignedRole = isPending ? "applicant" : "employee";
-      const assignedStatus = isPending ? "pending" : "active";
+      const assignedRole = "employee";
+      const assignedStatus = "active";
 
       const newRows = await sql`
         INSERT INTO admin_users (username, email, password_hash, full_name, role, status, is_active, staff_id, created_at, updated_at)
@@ -142,12 +142,15 @@ export async function POST(req: NextRequest) {
           NOW(),
           NOW()
         )
+        ON CONFLICT (email) DO UPDATE SET
+          full_name = EXCLUDED.full_name,
+          updated_at = NOW()
         RETURNING id
       `;
       adminUserId = Number((newRows[0] as any).id);
 
       // Assign role in user_roles
-      const roleRows = await sql`SELECT id FROM roles WHERE key = ${assignedRole} LIMIT 1`;
+      const roleRows = await sql`SELECT id FROM roles WHERE key = 'employee' LIMIT 1`;
       if (roleRows.length > 0) {
         await sql`
           INSERT INTO user_roles (user_id, role_id, scope_level, assigned_at)
