@@ -55,9 +55,9 @@ export async function GET(req: NextRequest) {
             AND (expires_at IS NULL OR expires_at > NOW())
         `;
 
-    const unreadCount = countRows[0]?.unread_count ?? 0;
+    const unreadCount = (countRows[0] as any)?.unread_count ?? 0;
 
-    const notifications = rows.map((r) => ({
+    const notifications = rows.map((r: any) => ({
       id: String(r.id),
       title: r.title,
       message: r.message,
@@ -79,9 +79,9 @@ export async function GET(req: NextRequest) {
       unreadCount,
       total: notifications.length,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("GET /api/admin/notifications error:", err);
-    return withCors(req, { success: false, error: err.message || "Failed to fetch notifications" }, 500);
+    return withCors(req, { success: false, error: err?.message || "Failed to fetch notifications" }, 500);
   }
 }
 
@@ -91,8 +91,15 @@ export async function POST(req: NextRequest) {
     if (!authResult.ok) {
       return withCors(req, { success: false, error: "Unauthorized" }, 401);
     }
-    const body = await req.json().catch(() => ({}));
-    const { title, message, type = "info", recipient_id = null, action_url = null, expires_at = null } = body;
+    const body = (await req.json().catch(() => ({}))) as any;
+    const {
+      title,
+      message,
+      type = "info",
+      recipient_id = null,
+      action_url = null,
+      expires_at = null,
+    } = body;
 
     if (!title || !message) {
       return withCors(req, { success: false, error: "Title and message are required" }, 400);
@@ -104,7 +111,10 @@ export async function POST(req: NextRequest) {
       RETURNING id, title, message, type, is_read, recipient_id, created_at, action_url
     `;
 
-    const r = inserted[0];
+    const r = inserted[0] as any;
+    if (!r) {
+      return withCors(req, { success: false, error: "Failed to create notification" }, 500);
+    }
     const notification = {
       id: String(r.id),
       title: r.title,
@@ -119,9 +129,9 @@ export async function POST(req: NextRequest) {
     };
 
     return withCors(req, { success: true, notification }, 201);
-  } catch (err) {
+  } catch (err: any) {
     console.error("POST /api/admin/notifications error:", err);
-    return withCors(req, { success: false, error: err.message || "Failed to create notification" }, 500);
+    return withCors(req, { success: false, error: err?.message || "Failed to create notification" }, 500);
   }
 }
 
@@ -131,7 +141,7 @@ export async function PATCH(req: NextRequest) {
     if (!authResult.ok) {
       return withCors(req, { success: false, error: "Unauthorized" }, 401);
     }
-    const body = await req.json().catch(() => ({}));
+    const body = (await req.json().catch(() => ({}))) as any;
     const { id, markAll, read = true } = body;
 
     if (markAll) {
@@ -157,9 +167,9 @@ export async function PATCH(req: NextRequest) {
     }
 
     return withCors(req, { success: false, error: "Missing notification id or markAll parameter" }, 400);
-  } catch (err) {
+  } catch (err: any) {
     console.error("PATCH /api/admin/notifications error:", err);
-    return withCors(req, { success: false, error: err.message || "Failed to update notifications" }, 500);
+    return withCors(req, { success: false, error: err?.message || "Failed to update notifications" }, 500);
   }
 }
 
@@ -185,8 +195,8 @@ export async function DELETE(req: NextRequest) {
     `;
 
     return withCors(req, { success: true, message: `Notification ${idParam} deleted` });
-  } catch (err) {
+  } catch (err: any) {
     console.error("DELETE /api/admin/notifications error:", err);
-    return withCors(req, { success: false, error: err.message || "Failed to delete notification" }, 500);
+    return withCors(req, { success: false, error: err?.message || "Failed to delete notification" }, 500);
   }
 }

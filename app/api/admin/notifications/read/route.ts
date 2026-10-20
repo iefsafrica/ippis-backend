@@ -53,11 +53,11 @@ async function handleMarkAll(req: NextRequest) {
       success: true,
       message: "All notifications marked as read",
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("POST /api/admin/notifications/read error:", err);
     return withCors(
       req,
-      { success: false, error: err.message || "Failed to mark all as read" },
+      { success: false, error: err?.message || "Failed to mark all as read" },
       500
     );
   }

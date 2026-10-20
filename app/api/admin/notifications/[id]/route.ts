@@ -13,7 +13,7 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authResult = await authenticate(req);
@@ -26,7 +26,7 @@ export async function PATCH(
       return withCors(req, { success: false, error: "Invalid notification ID" }, 400);
     }
 
-    const body = await req.json().catch(() => ({}));
+    const body = (await req.json().catch(() => ({}))) as any;
     const read = body.read !== undefined ? Boolean(body.read) : true;
 
     await sql`
@@ -39,7 +39,7 @@ export async function PATCH(
       success: true,
       message: `Notification ${numId} marked as ${read ? "read" : "unread"}`,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("PATCH /api/admin/notifications/[id] error:", err);
     return withCors(req, { success: false, error: err.message || "Failed to update notification" }, 500);
   }
@@ -47,16 +47,16 @@ export async function PATCH(
 
 export async function PUT(
   req: NextRequest,
-  context: { params: Promise<{ id: string }> | { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const authResult = await authenticate(req);
   if (!authResult.ok) return withCors(req, { success: false, error: "Unauthorized" }, 401);
-  return PATCH(req, context);
+  return PATCH(req, { params });
 }
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authResult = await authenticate(req);
@@ -78,7 +78,7 @@ export async function DELETE(
       success: true,
       message: `Notification ${numId} deleted`,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("DELETE /api/admin/notifications/[id] error:", err);
     return withCors(req, { success: false, error: err.message || "Failed to delete notification" }, 500);
   }
