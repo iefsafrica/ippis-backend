@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
+import { authenticate } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,10 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
+    const authResult = await authenticate(req);
+    if (!authResult.ok) {
+      return withCors(req, { success: false, error: "Unauthorized" }, 401);
+    }
     const resolvedParams = await params;
     const numId = parseInt(resolvedParams.id, 10);
     if (isNaN(numId)) {
@@ -44,6 +49,8 @@ export async function PUT(
   req: NextRequest,
   context: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const authResult = await authenticate(req);
+  if (!authResult.ok) return withCors(req, { success: false, error: "Unauthorized" }, 401);
   return PATCH(req, context);
 }
 
@@ -52,6 +59,10 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
+    const authResult = await authenticate(req);
+    if (!authResult.ok) {
+      return withCors(req, { success: false, error: "Unauthorized" }, 401);
+    }
     const resolvedParams = await params;
     const numId = parseInt(resolvedParams.id, 10);
     if (isNaN(numId)) {

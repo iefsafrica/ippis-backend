@@ -87,6 +87,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const authResult = await authenticate(req);
+    if (!authResult.ok) {
+      return withCors(req, { success: false, error: "Unauthorized" }, 401);
+    }
     const body = await req.json().catch(() => ({}));
     const { title, message, type = "info", recipient_id = null, action_url = null, expires_at = null } = body;
 
@@ -123,6 +127,10 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const authResult = await authenticate(req);
+    if (!authResult.ok) {
+      return withCors(req, { success: false, error: "Unauthorized" }, 401);
+    }
     const body = await req.json().catch(() => ({}));
     const { id, markAll, read = true } = body;
 
@@ -157,6 +165,10 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const authResult = await authenticate(req);
+    if (!authResult.ok) {
+      return withCors(req, { success: false, error: "Unauthorized" }, 401);
+    }
     const { searchParams } = new URL(req.url);
     const idParam = searchParams.get("id");
     if (!idParam) {

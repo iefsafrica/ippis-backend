@@ -22,6 +22,11 @@ const PUBLIC = {
   "POST /api/admin/auth/login/verify-otp": "code step of sign-in",
   "POST /api/admin/auth/logout": "clears the session cookie",
 
+  // Password reset (unauthenticated by design – user has no token yet)
+  "POST /api/admin/auth/forgot-password": "initiates password reset, no login required",
+  "GET /api/admin/auth/reset-password": "validates reset token before showing reset form",
+  "POST /api/admin/auth/reset-password": "sets new password using valid reset token",
+
   // Public onboarding form (applicants have no account)
   "POST /api/admin/employees/register": "public registration",
   "POST /api/admin/employees/register/personal": "public registration",
@@ -33,6 +38,7 @@ const PUBLIC = {
   "POST /api/track": "applicant tracks own registration",
   "GET /api/kyc-status": "applicant checks own verification",
   "POST /api/verify/nin": "identity check during registration",
+  "POST /api/register/create-applicant-account": "called by backend on approval, no session cookie available",
 
   // Read by pages that load before sign-in
   "GET /api/admin/settings/general": "system name and logo",

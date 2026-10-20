@@ -12,14 +12,20 @@ export async function OPTIONS(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const authResult = await authenticate(req);
+  if (!authResult.ok) return withCors(req, { success: false, error: "Unauthorized" }, 401);
   return handleMarkAll(req);
 }
 
 export async function PATCH(req: NextRequest) {
+  const authResult = await authenticate(req);
+  if (!authResult.ok) return withCors(req, { success: false, error: "Unauthorized" }, 401);
   return handleMarkAll(req);
 }
 
 export async function PUT(req: NextRequest) {
+  const authResult = await authenticate(req);
+  if (!authResult.ok) return withCors(req, { success: false, error: "Unauthorized" }, 401);
   return handleMarkAll(req);
 }
 
