@@ -329,7 +329,7 @@ export async function POST(req: NextRequest) {
     const auth = await authenticate(req);
     if (!auth.ok) return auth.response;
 
-    const body = await req.json().catch(() => ({}));
+    const body = (await req.json().catch(() => ({}))) as any;
     const { action } = body;
 
     if (action === "clock_in") {

@@ -171,8 +171,8 @@ export async function POST(req: NextRequest) {
       const employeeRoleRows = await sql`SELECT id FROM roles WHERE key = 'employee' LIMIT 1`
       const adminUserRows = await sql`SELECT id FROM admin_users WHERE email = ${email} LIMIT 1`
       if (employeeRoleRows.length > 0 && adminUserRows.length > 0) {
-        const roleId = employeeRoleRows[0].id
-        const adminUserId = String(adminUserRows[0].id)
+        const roleId = (employeeRoleRows[0] as any).id
+        const adminUserId = String((adminUserRows[0] as any).id)
         await sql`
           INSERT INTO user_roles (user_id, role_id, scope_level, assigned_by, reason, assigned_at)
           VALUES (${adminUserId}, ${roleId}, 'self', ${String(auth.ctx.userId)}, 'Auto-assigned on employee approval', NOW())
