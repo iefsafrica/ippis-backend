@@ -120,8 +120,11 @@ function generateOTPEmailHtml(otp: string): string {
  * @param otp OTP code
  */
 export async function sendOTPEmail(to: string, otp: string) {
-  // Always log OTP for administrative access and audit trail
-  console.log(`[OTP Email] Generated OTP for ${to}: ${otp}`);
+  // Local development only: print the code so sign-in works without a mailbox.
+  // Never in production, where anyone with log access could use it.
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[OTP Email] DEV MODE - OTP for ${to}: ${otp}`);
+  }
 
   // Build recipients list: if user.email is an internal @ippis.gov.ng address,
   // also deliver to SMTP_USER so the operator receives it in their mailbox.
@@ -576,7 +579,7 @@ function generateApprovalEmailHtml(payload: EmployeeApprovalPayload): string {
               </div>
               <h2 style="margin: 0 0 16px; color: #0f172a; font-size: 20px; font-weight: 600;">Congratulations, ${fullName}</h2>
               <p style="margin: 0 0 20px; color: #475569; font-size: 15px; line-height: 1.6;">
-                Your employment record has been officially approved and activated on the <strong>Integrated Personnel and Payroll Information System (IPPIS)</strong>. Your employee self-service account has been created.
+                Your employment record has been officially approved and activated on the <strong>Integrated Personnel and Payroll Information System (IPPIS)</strong>. You will receive a separate email inviting you to set your password for the employee portal.
               </p>
               
               <!-- Official Employee ID Box -->

@@ -2,8 +2,8 @@ import { neon } from "@neondatabase/serverless";
 import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited, readReason } from "@/lib/rbac";
-import { newLinkToken, portalLink, INVITE_VALID_HOURS } from "@/lib/employee-auth";
-import { sendEmployeeInviteEmail } from "@lib/email";
+import { INVITE_VALID_HOURS } from "@/lib/employee-auth";
+import { inviteToPortal } from "@/lib/employee-invite";
 
 export const dynamic = "force-dynamic";
 
@@ -87,75 +87,24 @@ export async function POST(req: NextRequest) {
       return withCors(req, { success: false, error: "employee_id is required" }, 400);
     }
 
-    const rows = await db`
-      SELECT e.id, e.name, e.email, e.status, a.status AS account_status
-      FROM employees e
-      LEFT JOIN employee_accounts a ON a.employee_id = e.id
-      WHERE e.id = ${employeeId}
-    `;
-    const employee = rows[0];
-    if (!employee) {
-      return withCors(req, { success: false, error: "Employee not found" }, 404);
-    }
-    if (String(employee.status).toLowerCase() !== "active") {
-      return withCors(req, { success: false, error: `Only active employees can be invited (status is '${employee.status}')` }, 409);
-    }
-    if (!employee.email) {
-      return withCors(req, { success: false, error: "Employee has no email address on record" }, 409);
-    }
-    if (employee.account_status === "active") {
-      return withCors(req, {
-        success: false,
-        error: "Employee already has an active account. They can use 'Forgot password' if they cannot sign in.",
-      }, 409);
-    }
-    if (employee.account_status === "suspended" || employee.account_status === "deactivated") {
-      return withCors(req, {
-        success: false,
-        error: `Account is ${employee.account_status}. Reactivate it before sending a new invite.`,
-      }, 409);
-    }
-
-    const { token, hash } = newLinkToken();
-
-    await runAudited(
-      req,
-      auth.ctx,
-      {
+    const result = await inviteToPortal(employeeId, auth.ctx.user.username);
+    // A 502 means the invite exists but its email failed, so it is still recorded
+    if (result.ok || result.status === 502) {
+      await runAudited(req, auth.ctx, {
         action: "users.employee_account.invited",
         targetType: "employee",
         targetId: employeeId,
         reason: readReason(body.reason),
-        details: { email: employee.email, resend: employee.account_status === "invited" },
-      },
-      [
-        db`
-          INSERT INTO employee_accounts (employee_id, status, invite_token_hash, invite_expires_at, invited_by, invited_at)
-          VALUES (${employeeId}, 'invited', ${hash}, NOW() + make_interval(hours => ${INVITE_VALID_HOURS}), ${auth.ctx.user.username}, NOW())
-          ON CONFLICT (employee_id) DO UPDATE SET
-            invite_token_hash = EXCLUDED.invite_token_hash,
-            invite_expires_at = EXCLUDED.invite_expires_at,
-            invited_by = EXCLUDED.invited_by,
-            invited_at = EXCLUDED.invited_at,
-            updated_at = NOW()
-          WHERE employee_accounts.status = 'invited'
-        `,
-      ]
-    );
-
-    try {
-      await sendEmployeeInviteEmail(String(employee.email), String(employee.name), portalLink("set-password", token));
-    } catch (emailError) {
-      console.error("EMPLOYEE INVITE EMAIL ERROR:", emailError);
-      return withCors(req, {
-        success: false,
-        error: "The invite was created but the email could not be sent. Check the SMTP settings and send it again.",
-      }, 502);
+        details: result.ok ? { email: result.email, resend: result.resent } : { email_failed: true },
+      }, []);
+    }
+    if (!result.ok) {
+      return withCors(req, { success: false, error: result.error }, result.status);
     }
 
     return withCors(req, {
       success: true,
-      message: `Invite sent to ${employee.email}. The link is valid for ${INVITE_VALID_HOURS} hours.`,
+      message: `Invite sent to ${result.email}. The link is valid for ${INVITE_VALID_HOURS} hours.`,
       data: { employee_id: employeeId, account_status: "invited" },
     });
   } catch (error) {

@@ -29,29 +29,34 @@ export function otpMatches(otp: string, storedHash: string) {
   return given.length === stored.length && crypto.timingSafeEqual(given, stored);
 }
 
+// Account roles that may use the admin sign-in, compared after removing spaces,
+// underscores and hyphens ("Super Admin" -> "superadmin"). What each person can
+// then open is decided by their assigned roles and permissions.
+// Employees are not on this list: they sign in to the employee portal
+// (/api/employee/auth/login) with their own account.
+const ADMIN_SIGN_IN_ROLES = new Set([
+  "admin",
+  "superadmin",
+  "applicant",
+  "centralaccessadmin",
+  "centralhradmin",
+  "centralpayrolladmin",
+  "mdaadmin",
+  "departmenthead",
+  "hrofficer",
+  "payrollofficer",
+  "financeofficer",
+  "internalauditor",
+  "reportingofficer",
+  "helpdeskofficer",
+  "viewer",
+  "officer",
+  "user",
+]);
+
 export function isAllowedAdminRole(role: string) {
   const normalizedRole = (role || "").replace(/[\s_-]+/g, "").toLowerCase();
-  const allowed = [
-    "admin",
-    "superadmin",
-    "employee",
-    "applicant",
-    "selfservice",
-    "centralaccessadmin",
-    "centralhradmin",
-    "centralpayrolladmin",
-    "mdaadmin",
-    "departmenthead",
-    "hrofficer",
-    "payrollofficer",
-    "financeofficer",
-    "internalauditor",
-    "reportingofficer",
-    "helpdeskofficer",
-    "viewer",
-    "officer",
-    "user"
-  ];
-  return allowed.some((r) => normalizedRole.includes(r));
+  // Exact match: a substring test let any role containing "user" or "admin" through
+  return ADMIN_SIGN_IN_ROLES.has(normalizedRole);
 }
 

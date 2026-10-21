@@ -18,7 +18,8 @@ function isOriginAllowed(origin: string | null): boolean {
 export function middleware(request: NextRequest) {
   const origin = request.headers.get("origin");
   const originAllowed = isOriginAllowed(origin);
-  const allowOriginValue = originAllowed ? origin! : (origin || "https://ippis-frontend.vercel.app");
+  // Never echo an origin that is not allowed: credentials are allowed, so that would let any site call the API
+  const allowOriginValue = originAllowed ? origin! : "https://ippis-frontend.vercel.app";
 
   // Handle preflight OPTIONS requests across all /api routes
   if (request.method === "OPTIONS") {
