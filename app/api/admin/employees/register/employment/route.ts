@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import {
-  buildRegistrationIdVariants,
+  findRegistrationIdInDb,
   resolveRegistrationIdInput,
 } from "@/lib/registration-id";
 
@@ -116,25 +116,14 @@ export async function POST(req: NextRequest) {
     /* -------------------------
        CHECK REGISTRATION EXISTS
     ------------------------- */
-    let existing: Array<{ registration_id: string }> = [];
-    for (const candidate of buildRegistrationIdVariants(registration_id)) {
-      existing = (await sql`
-        SELECT registration_id
-        FROM registrations
-        WHERE registration_id = ${candidate}
-        LIMIT 1
-      `) as Array<{ registration_id: string }>;
-      if (existing.length > 0) break;
-    }
+    const resolvedRegistrationId = await findRegistrationIdInDb(sql, registration_id);
 
-    if (existing.length === 0) {
+    if (!resolvedRegistrationId) {
       return withCors(req, {
         success: false,
         message: "Invalid registration ID"
       }, 404);
     }
-
-    const resolvedRegistrationId = existing[0]!.registration_id as string;
 
     /* -------------------------
        INSERT EMPLOYEE INFO

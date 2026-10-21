@@ -47,8 +47,9 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as OTPRequestBody;
     const { username, email } = body;
+    const rawIdentifier = (username || email || "").trim();
 
-    if (!username && !email) {
+    if (!rawIdentifier) {
       return withCors(
         req,
         { success: false, message: "Username or email is required" },
@@ -56,11 +57,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1️⃣ Find admin user
+    // 1️⃣ Find admin user (supports case-insensitive username or email, ignores empty strings)
     const result = await sql`
       SELECT id, username, email, role, is_active
       FROM admin_users
-      WHERE username = ${username ?? null} OR email = ${email ?? null}
+      WHERE (
+        (NULLIF(TRIM(username), '') IS NOT NULL AND (
+          LOWER(TRIM(username)) = LOWER(${rawIdentifier})
+          OR LOWER(TRIM(username)) = LOWER(${email?.trim() ?? ''})
+        ))
+        OR
+        (NULLIF(TRIM(email), '') IS NOT NULL AND (
+          LOWER(TRIM(email)) = LOWER(${rawIdentifier})
+          OR LOWER(TRIM(email)) = LOWER(${username?.trim() ?? ''})
+        ))
+      )
       LIMIT 1
     `;
 

@@ -47,57 +47,79 @@ export async function POST(req: NextRequest) {
       return withCors(req, { success: false, error: "CSV is empty" }, 400);
     }
 
-    const insertedEmployees = [];
+    const insertedEmployees: any[] = [];
+    const chunkSize = 100;
 
-    for (const row of rows) {
-      const registrationId = row.EmploymentIdNo || `REG-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      const valueStrings: string[] = [];
+      const queryParams: any[] = [];
+      let paramIndex = 1;
 
-      const jsonData = {
-        GL: row.GL,
-        LGA: row.LGA,
-        Step: row.Step,
-        Cadre: row.Cadre,
-        Email: row.Email,
-        Title: row.Title,
-        Gender: row.Sex || row.Gender,
-        Salary: row.Salary,
-        "File No": row.FileNo,
-        "RSA PIN": row.RSAPIN,
-        Surname: row.Surname,
-        "PFA Name": row.PFAName,
-        Position: row.RankPosition || row.Position,
-        "Bank Name": row.NameOfBank,
-        FirstName: row.FirstName,
-        Department: row.Department,
-        "Service No": row.ServiceNo,
-        "Employee ID": row.EmploymentIdNo,
-        "Other Names": row.OtherNames,
-        "BVN Verified": row["BVN Verified"] || null,
-        "NIN Verified": row["NIN Verified"] || null,
-        Organization: row.Organization,
-        "Phone Number": row.PhoneNumber,
-        "Date of Birth": row.DateOfBirth,
-        "Work Location": row.WorkLocation,
-        "Account Number": row.AccountNumber,
-        "Marital Status": row.MaritalStatus,
-        "Payment Method": row.PaymentMethod || "Bank Transfer",
-        "Employment Type": row.EmploymentType,
-        "State of Origin": row.StateOfOrigin,
-        "Next of Kin Name": row.NextOfKinName,
-        "Probation Period": row.ProbationPeriod,
-        "Salary Structure": row.SalaryStructure,
-        "Next of Kin Phone": row.NextOfKinPhoneNumber,
-        "State of Residence": row.StateOfResidence,
-        "Next of Kin Address": row.NextOfKinAddress,
-        "Residential Address": row.AddressStateOfResidence,
-        "Next of Kin Relationship": row["Next Of Kin Relationship"],
-        "Date of First Appointment": row.DateOfFirstAppointment,
-        Certifications: row.Certifications,
-        EducationalBackground: row.EducationalBackground,
-        Declaration: row.Declaration,
-      };
+      for (const row of chunk) {
+        const registrationId = row.EmploymentIdNo || `REG-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-      const result = await sql`
+        const jsonData = {
+          GL: row.GL,
+          LGA: row.LGA,
+          Step: row.Step,
+          Cadre: row.Cadre,
+          Email: row.Email,
+          Title: row.Title,
+          Gender: row.Sex || row.Gender,
+          Salary: row.Salary,
+          "File No": row.FileNo,
+          "RSA PIN": row.RSAPIN,
+          Surname: row.Surname,
+          "PFA Name": row.PFAName,
+          Position: row.RankPosition || row.Position,
+          "Bank Name": row.NameOfBank,
+          FirstName: row.FirstName,
+          Department: row.Department,
+          "Service No": row.ServiceNo,
+          "Employee ID": row.EmploymentIdNo,
+          "Other Names": row.OtherNames,
+          "BVN Verified": row["BVN Verified"] || null,
+          "NIN Verified": row["NIN Verified"] || null,
+          Organization: row.Organization,
+          "Phone Number": row.PhoneNumber,
+          "Date of Birth": row.DateOfBirth,
+          "Work Location": row.WorkLocation,
+          "Account Number": row.AccountNumber,
+          "Marital Status": row.MaritalStatus,
+          "Payment Method": row.PaymentMethod || "Bank Transfer",
+          "Employment Type": row.EmploymentType,
+          "State of Origin": row.StateOfOrigin,
+          "Next of Kin Name": row.NextOfKinName,
+          "Probation Period": row.ProbationPeriod,
+          "Salary Structure": row.SalaryStructure,
+          "Next of Kin Phone": row.NextOfKinPhoneNumber,
+          "State of Residence": row.StateOfResidence,
+          "Next of Kin Address": row.NextOfKinAddress,
+          "Residential Address": row.AddressStateOfResidence,
+          "Next of Kin Relationship": row["Next Of Kin Relationship"],
+          "Date of First Appointment": row.DateOfFirstAppointment,
+          Certifications: row.Certifications,
+          EducationalBackground: row.EducationalBackground,
+          Declaration: row.Declaration,
+        };
+
+        valueStrings.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5}, $${paramIndex + 6}, $${paramIndex + 7}, NOW(), NOW(), $${paramIndex + 8})`);
+        queryParams.push(
+          registrationId,
+          row.Surname || "",
+          row.FirstName || "",
+          row.Email || "",
+          row.Department || null,
+          row.RankPosition || row.Position || null,
+          'pending_approval',
+          'import',
+          JSON.stringify(jsonData)
+        );
+        paramIndex += 9;
+      }
+
+      const queryText = `
         INSERT INTO pending_employees (
           registration_id,
           surname,
@@ -110,22 +132,12 @@ export async function POST(req: NextRequest) {
           created_at,
           updated_at,
           metadata
-        ) VALUES (
-          ${registrationId},
-          ${row.Surname},
-          ${row.FirstName},
-          ${row.Email},
-          ${row.Department},
-          ${row.RankPosition || row.Position},
-          'pending_approval',
-          'import',
-          NOW(),
-          NOW(),
-          ${JSON.stringify(jsonData)}
-        )
+        ) VALUES ${valueStrings.join(", ")}
         RETURNING *
       `;
-      insertedEmployees.push(result[0]);
+
+      const result = (await sql.query(queryText, queryParams)) as any[];
+      insertedEmployees.push(...result);
     }
 
     await runAudited(req, auth.ctx, {

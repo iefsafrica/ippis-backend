@@ -2,7 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
-import nodemailer from "nodemailer";
+import { sendEmployeeRejectionEmail } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -95,44 +95,17 @@ export async function PATCH(req: NextRequest) {
       pendingEmployee.email
     )}&id=${encodeURIComponent(registrationId)}`;
 
-    //  Send rejection email
-    try {
-      if (pendingEmployee.email) {
-        const transporter = nodemailer.createTransport({
-          service: "gmail",
-          auth: {
-            user: process.env.SMTP_USER!,
-            pass: process.env.SMTP_PASS!,
-          },
-        });
-
-        const mailText = `
-Hi ${fullName},
-
-We regret to inform you that your employment application has not been approved at this time.
-
-However, you’re welcome to resubmit your details for future consideration. You can do so by clicking the link below:
-
-🔗 ${reapplyUrl}
-
-Thank you for your interest, and we wish you the best in your future endeavors.
-
-— The HR Team
-`;
-
-        await transporter.sendMail({
-          from: `"HR Department" <${process.env.SMTP_USER}>`,
-          to: pendingEmployee.email,
-          subject: "Your Employment Application Status",
-          text: mailText,
-        });
-
-        console.log(` Rejection email with reapply link sent to: ${pendingEmployee.email}`);
-      } else {
-        console.warn("⚠️ Skipping rejection email — no valid email found.");
-      }
-    } catch (emailError) {
-      console.error("⚠️ Failed to send rejection email:", emailError);
+    // Send rejection email (HTML template with reapplication link)
+    if (pendingEmployee.email) {
+      await sendEmployeeRejectionEmail({
+        to: pendingEmployee.email,
+        fullName,
+        reapplyUrl,
+      }).catch((emailError) => {
+        console.error("⚠️ Failed to send rejection email:", emailError);
+      });
+    } else {
+      console.warn("⚠️ Skipping rejection email — no valid email found.");
     }
 
     //  Return success response

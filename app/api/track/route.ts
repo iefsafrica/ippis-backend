@@ -38,6 +38,32 @@ async function findRegistrationRow(inputId: string) {
     }
   }
 
+  const stripped = inputId.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  if (stripped) {
+    const fallbackRows = await sql`
+      SELECT id, registration_id, nin, status, current_step, declaration, created_at, updated_at, submitted_at, approved_at, rejected_at
+      FROM registrations
+      WHERE regexp_replace(upper(registration_id), '[^A-Z0-9]', '', 'g') = ${stripped}
+      LIMIT 1
+    `;
+
+    if (fallbackRows.length > 0) {
+      return fallbackRows[0] as {
+        id: number;
+        registration_id: string;
+        nin: string | null;
+        status: string;
+        current_step: string;
+        declaration: boolean | null;
+        created_at: string;
+        updated_at: string;
+        submitted_at: string | null;
+        approved_at: string | null;
+        rejected_at: string | null;
+      };
+    }
+  }
+
   return null;
 }
 
@@ -52,6 +78,20 @@ async function findPendingRow(inputId: string) {
 
     if (rows.length > 0) {
       return rows[0];
+    }
+  }
+
+  const stripped = inputId.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  if (stripped) {
+    const fallbackRows = await sql`
+      SELECT *
+      FROM pending_employees
+      WHERE regexp_replace(upper(registration_id), '[^A-Z0-9]', '', 'g') = ${stripped}
+      LIMIT 1
+    `;
+
+    if (fallbackRows.length > 0) {
+      return fallbackRows[0];
     }
   }
 

@@ -1,11 +1,16 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export function middleware(request: NextRequest) {
   const origin = request.headers.get("origin");
 
-  // Allow your frontend origin
-  const allowedOrigins = ["http://localhost:3000"];
+  // Allow frontend origins
+  const allowedOrigins = [
+    "http://localhost:3000",
+    "https://ippis-frontend.vercel.app",
+    "https://staff-management-and-identity-verif.vercel.app",
+    "https://nigeria-police-personnel-database.vercel.app",
+  ];
 
   const response = NextResponse.next();
 

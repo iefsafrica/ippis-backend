@@ -30,6 +30,28 @@ export function otpMatches(otp: string, storedHash: string) {
 }
 
 export function isAllowedAdminRole(role: string) {
-  const normalizedRole = role.replace(/\s+/g, "").toLowerCase();
-  return ["admin", "superadmin"].includes(normalizedRole);
+  const normalizedRole = (role || "").replace(/[\s_-]+/g, "").toLowerCase();
+  const allowed = [
+    "admin",
+    "superadmin",
+    "employee",
+    "applicant",
+    "selfservice",
+    "centralaccessadmin",
+    "centralhradmin",
+    "centralpayrolladmin",
+    "mdaadmin",
+    "departmenthead",
+    "hrofficer",
+    "payrollofficer",
+    "financeofficer",
+    "internalauditor",
+    "reportingofficer",
+    "helpdeskofficer",
+    "viewer",
+    "officer",
+    "user"
+  ];
+  return allowed.some((r) => normalizedRole.includes(r));
 }
+

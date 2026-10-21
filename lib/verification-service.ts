@@ -74,13 +74,14 @@ export async function verifyNIN(
     const data = safeParse(raw);
 
     if (!data) {
-      return createErrorResult("Invalid JSON from API", response.status);
+      return createErrorResult(`Invalid JSON from API (Status: ${response.status}): ${raw.substring(0, 200)}`, response.status);
     }
 
     if (!response.ok) {
       return createErrorResult(
         data.message || "API request failed",
-        response.status
+        response.status,
+        data
       );
     }
 
@@ -90,7 +91,9 @@ export async function verifyNIN(
       return createErrorResult("Request timed out");
     }
 
-    return createErrorResult("Unexpected error during verification");
+    return createErrorResult(`Unexpected error during verification: ${err?.message || String(err)}`, 500, {
+      stack: err?.stack
+    });
   }
 }
 
@@ -117,7 +120,46 @@ function safeParse(raw: string): NetAppsNINResponse | null {
 /**
  * 🔥 FIXED RESPONSE NORMALIZER (MAIN FIX IS HERE)
  */
+function extractPhoto(data: any): string | null {
+  if (!data) return null;
+  const candidates = [
+    data.photo,
+    data.data?.photo,
+    data.photo_base64,
+    data.data?.photo_base64,
+    data.photoBase64,
+    data.data?.photoBase64,
+    data.image,
+    data.data?.image,
+    data.passport,
+    data.data?.passport,
+    data.picture,
+    data.data?.picture,
+    data.avatar,
+    data.data?.avatar,
+    data.selfie,
+    data.data?.selfie,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      const trimmed = candidate.trim();
+      if (
+        trimmed.startsWith("data:image/") ||
+        trimmed.startsWith("http://") ||
+        trimmed.startsWith("https://")
+      ) {
+        return trimmed;
+      }
+      return `data:image/jpeg;base64,${trimmed}`;
+    }
+  }
+
+  return null;
+}
+
 function normalizeResponse(data: NetAppsNINResponse): VerificationResult {
+  const photo = extractPhoto(data);
   console.log("PARSED NETAPPS RESPONSE:", data);
 
   const status = data?.status?.toLowerCase();
@@ -144,6 +186,13 @@ function normalizeResponse(data: NetAppsNINResponse): VerificationResult {
    * CASE 1: wrapped success response
    */
   if (isSuccessStatus && hasDataObject) {
+    if (photo && typeof data.data === "object") {
+      data.data.photo = photo;
+      data.data.photo_base64 = photo;
+      data.data.image = photo;
+      data.data.passport = photo;
+      data.data.profileImage = photo;
+    }
     return {
       verified: true,
       message: data.message || "NIN verified successfully",
@@ -155,6 +204,13 @@ function normalizeResponse(data: NetAppsNINResponse): VerificationResult {
    * CASE 2: boolean success response
    */
   if (isBooleanSuccess && hasDataObject) {
+    if (photo && typeof data.data === "object") {
+      data.data.photo = photo;
+      data.data.photo_base64 = photo;
+      data.data.image = photo;
+      data.data.passport = photo;
+      data.data.profileImage = photo;
+    }
     return {
       verified: true,
       message: data.message || "NIN verified successfully",
@@ -170,17 +226,19 @@ function normalizeResponse(data: NetAppsNINResponse): VerificationResult {
       verified: true,
       message: "NIN verified successfully",
       data: {
+        ...data,
         nin: ninValue,
-        firstname: data.firstname ?? null,
-        surname: data.surname ?? null,
-        middlename: data.middlename ?? null,
-        gender: data.gender ?? null,
-        birthdate: data.birthdate ?? null,
-        telephoneno: data.telephoneno ?? null,
-        residenceAdressLine1: data.residenceAdressLine1 ?? null,
+        firstname: data.firstname ?? data.first_name ?? null,
+        surname: data.surname ?? data.last_name ?? null,
+        middlename: data.middlename ?? data.middle_name ?? null,
+        gender: data.gender ?? data.sex ?? null,
+        birthdate: data.birthdate ?? data.date_of_birth ?? data.birth_date ?? data.dateOfBirth ?? data.dob ?? null,
+        telephoneno: data.telephoneno ?? data.phone ?? data.phone_number ?? null,
+        residenceAdressLine1: data.residenceAdressLine1 ?? data.residence_address ?? null,
         residenceTown: data.residenceTown ?? null,
-        residenceLga: data.residenceLga ?? null,
-        residenceState: data.residenceState ?? null,
+        residenceLga: data.residenceLga ?? data.lga ?? null,
+        residenceState: data.residenceState ?? data.state ?? null,
+        ...(photo ? { photo, photo_base64: photo, image: photo, passport: photo, profileImage: photo } : {}),
       },
     };
   }
@@ -191,7 +249,7 @@ function normalizeResponse(data: NetAppsNINResponse): VerificationResult {
   return {
     verified: false,
     message: data?.message || "NIN verification failed",
-    data: null,
+    data: data, // pass the raw response back to inspect the exact failure
   };
 }
 
@@ -200,12 +258,13 @@ function normalizeResponse(data: NetAppsNINResponse): VerificationResult {
  */
 function createErrorResult(
   message: string,
-  statusCode?: number
+  statusCode?: number,
+  errorData?: any
 ): VerificationResult {
   const result: VerificationResult = {
     verified: false,
     message,
-    data: null,
+    data: errorData || null,
   };
 
   if (typeof statusCode === "number") {

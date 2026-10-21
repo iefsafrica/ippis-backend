@@ -2,7 +2,9 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
-import nodemailer from "nodemailer";
+import { sendEmployeeApprovalEmail } from "@/lib/email";
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -16,6 +18,20 @@ async function tableExists(tableName: string) {
     )
   `;
   return result[0]?.exists ?? false;
+}
+
+/** Generates a secure temporary password */
+function generateTempPassword(): string {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  const special = "!@#$%";
+  let pw = "";
+  for (let i = 0; i < 8; i++) {
+    pw += chars[crypto.randomInt(chars.length)];
+  }
+  pw += special[crypto.randomInt(special.length)];
+  pw += crypto.randomInt(10, 99);
+  // Shuffle
+  return pw.split("").sort(() => crypto.randomInt(3) - 1).join("");
 }
 
 export async function OPTIONS(req: NextRequest) {
@@ -116,35 +132,77 @@ export async function PATCH(req: NextRequest) {
       RETURNING *
     `;
 
-    // Optional email notification
-    if (process.env.SMTP_USER && insertedEmployee?.email) {
-      try {
-        const transporter = nodemailer.createTransport({
-          service: "gmail",
-          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-        });
+    // Create admin_users login account for the employee
+    let temporaryPassword: string | undefined;
+    try {
+      if (insertedEmployee?.email && insertedEmployee.email !== "no-email@example.com") {
+        temporaryPassword = generateTempPassword();
+        const passwordHash = await bcrypt.hash(temporaryPassword, 12);
+        const username = insertedEmployee.email;
 
-        await transporter.sendMail({
-          from: `"HR Department" <${process.env.SMTP_USER}>`,
-          to: insertedEmployee.email,
-          subject: "Approval Successful",
-          text: `Hello ${fullName},
+        // Upsert admin_users: create or update if already exists
+        await sql`
+          INSERT INTO admin_users (username, email, password_hash, full_name, role, is_active, status, staff_id, created_at, updated_at)
+          VALUES (
+            ${username},
+            ${insertedEmployee.email},
+            ${passwordHash},
+            ${fullName},
+            'employee',
+            true,
+            'active',
+            ${newEmployeeId},
+            NOW(),
+            NOW()
+          )
+          ON CONFLICT (email) DO UPDATE SET
+            password_hash = EXCLUDED.password_hash,
+            full_name = EXCLUDED.full_name,
+            role = 'employee',
+            is_active = true,
+            status = 'active',
+            staff_id = EXCLUDED.staff_id,
+            updated_at = NOW()
+        `;
 
-Your employment has been officially approved. Welcome aboard!
-
-Your employee ID is: ${insertedEmployee.id}
-
-Regards,
-HR Team`,
-        });
-
-        console.log(`Email sent to ${insertedEmployee.email}`);
-      } catch (err) {
-        console.error("Email send failed:", err);
+        // Assign the 'employee' role in user_roles using the role key
+        const employeeRoleRows = await sql`
+          SELECT id FROM roles WHERE key = 'employee' LIMIT 1
+        `;
+        const adminUserRows = await sql`
+          SELECT id FROM admin_users WHERE email = ${insertedEmployee.email} LIMIT 1
+        `;
+        if (employeeRoleRows.length > 0 && adminUserRows.length > 0) {
+          const roleId = (employeeRoleRows[0] as any).id;
+          const adminUserId = String((adminUserRows[0] as any).id);
+          await sql`
+            INSERT INTO user_roles (user_id, role_id, scope_level, assigned_by, reason, assigned_at)
+            VALUES (${adminUserId}, ${roleId}, 'self', ${String(auth.ctx.userId)}, 'Auto-assigned on employee approval', NOW())
+            ON CONFLICT DO NOTHING
+          `;
+        }
       }
+    } catch (accountErr) {
+      console.error("Failed to create employee login account:", accountErr);
+      // Continue — account creation failure should not block approval
     }
 
-    // 🔥 DELETE from pending_employees AFTER successful migration
+    // Send official HTML employment approval + credentials email
+    if (insertedEmployee?.email && insertedEmployee.email !== "no-email@example.com") {
+      await sendEmployeeApprovalEmail({
+        to: insertedEmployee.email,
+        fullName,
+        employeeId: insertedEmployee.id,
+        position: insertedEmployee.position || undefined,
+        department: insertedEmployee.department || undefined,
+        username: insertedEmployee.email,
+        temporaryPassword,
+      }).catch((err) => {
+        console.error("Employee approval email send failed:", err);
+      });
+    }
+
+    // DELETE from pending_employees AFTER successful migration
     await sql`
       DELETE FROM pending_employees WHERE registration_id = ${registrationId}
     `;

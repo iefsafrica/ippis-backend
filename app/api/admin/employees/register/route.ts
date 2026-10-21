@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
-import nodemailer from "nodemailer";
 import { v4 as uuidv4 } from "uuid";
+import { sendEmployeeRegistrationEmail } from "@/lib/email";
 import {
   buildRegistrationIdVariants,
   resolveRegistrationIdInput,
@@ -33,15 +33,6 @@ interface RegistrationBody {
   maritalstatus?: string;
 }
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER!,
-    pass: process.env.SMTP_PASS!,
-  },
-});
 
 async function findRegistrationByAnyFormat(input: string) {
   for (const candidate of buildRegistrationIdVariants(input)) {
@@ -54,6 +45,25 @@ async function findRegistrationByAnyFormat(input: string) {
 
     if (rows.length > 0) {
       return rows[0] as {
+        id: number;
+        registration_id: string;
+        status: string;
+        current_step: string;
+      };
+    }
+  }
+
+  const stripped = input.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  if (stripped) {
+    const fallbackRows = await sql`
+      SELECT id, registration_id, status, current_step
+      FROM registrations
+      WHERE regexp_replace(upper(registration_id), '[^A-Z0-9]', '', 'g') = ${stripped}
+      LIMIT 1
+    `;
+
+    if (fallbackRows.length > 0) {
+      return fallbackRows[0] as {
         id: number;
         registration_id: string;
         status: string;
@@ -271,31 +281,18 @@ export async function POST(req: NextRequest) {
       body,
     });
 
-    const message = `Dear ${firstname},
-
-Your employee registration has been received successfully.
-
-Your Employee Registration ID is:
-
-${registrationRow.registration_id}
-
-Please keep this ID safe as it will be used to track your registration.
-
-Our HR team will review your application shortly.
-
-IMPORTANT:
-Please login to the portal and upload the required documents to complete your registration.
-`;
+    const baseUrl = process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app";
+    const onboardingUrl = `${baseUrl}/register?email=${encodeURIComponent(email)}`;
 
     let emailSent = false;
     try {
-      await transporter.sendMail({
-        from: `"HR Department" <${process.env.SMTP_USER}>`,
+      const result = await sendEmployeeRegistrationEmail({
         to: email,
-        subject: "Employee Registration Successful",
-        text: message,
+        fullName: `${firstname} ${surname}`.trim(),
+        registrationId: registrationRow.registration_id,
+        onboardingUrl,
       });
-      emailSent = true;
+      emailSent = Boolean(result);
     } catch (emailError) {
       console.error("Failed to send registration email:", emailError);
     }

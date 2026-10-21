@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
     message: verification.verified
       ? verification.message || "NIN verified successfully"
       : verification.message || "NIN not verified. Continue manually.",
-    data: verification.verified ? verification.data : null,
+    data: verification.data,
   }, 200);
 }
 
