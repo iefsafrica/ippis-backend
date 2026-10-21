@@ -17,7 +17,9 @@ function isOriginAllowed(origin: string | null): boolean {
 
 // ✅ Generate CORS headers dynamically
 function getCorsHeaders(origin?: string) {
-  const allowOrigin = origin && isOriginAllowed(origin) ? origin : (origin || "https://ippis-frontend.vercel.app");
+  // An origin that is not allowed gets the main frontend's origin back, which the
+  // browser treats as a mismatch, so other sites cannot read API responses
+  const allowOrigin = origin && isOriginAllowed(origin) ? origin : "https://ippis-frontend.vercel.app";
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",

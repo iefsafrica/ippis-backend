@@ -120,8 +120,11 @@ function generateOTPEmailHtml(otp: string): string {
  * @param otp OTP code
  */
 export async function sendOTPEmail(to: string, otp: string) {
-  // Always log OTP for administrative access and audit trail
-  console.log(`[OTP Email] Generated OTP for ${to}: ${otp}`);
+  // Local development only: print the code so sign-in works without a mailbox.
+  // Never in production, where anyone with log access could use it.
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[OTP Email] DEV MODE - OTP for ${to}: ${otp}`);
+  }
 
   // Build recipients list: if user.email is an internal @ippis.gov.ng address,
   // also deliver to SMTP_USER so the operator receives it in their mailbox.
