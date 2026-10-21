@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { notify } from "@/lib/employee-notifications";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -267,6 +268,17 @@ export async function PUT(req: NextRequest) {
     }
 
     await runAudited(req, auth.ctx, { action: "timesheets.leave.updated", targetType: "timesheets.leave", details: {} }, []);
+
+    // Tell the employee when their request is decided
+    const decided = typeof status === "string" ? status.toLowerCase() : null;
+    if (decided === "approved" || decided === "rejected") {
+      const leave = result[0] as any;
+      await notify(String(leave.employee_code), "leave", {
+        title: `Leave request ${decided}`,
+        message: `Your ${leave.leave_type} leave request was ${decided}.`,
+        link: "/employee/leave",
+      });
+    }
 
     return withCors(req,{
       success:true,

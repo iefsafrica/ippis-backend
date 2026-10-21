@@ -22,6 +22,12 @@ const PUBLIC = {
   "POST /api/admin/auth/login/verify-otp": "code step of sign-in",
   "POST /api/admin/auth/logout": "clears the session cookie",
 
+  // Employee portal sign-in (the rest of /api/employee uses authenticateEmployee)
+  "POST /api/employee/auth/login": "employee sign-in",
+  "POST /api/employee/auth/accept-invite": "employee sets first password from the invite link",
+  "POST /api/employee/auth/forgot-password": "employee asks for a reset link",
+  "POST /api/employee/auth/reset-password": "employee sets a new password from the reset link",
+
   // Public onboarding form (applicants have no account)
   "POST /api/admin/employees/register": "public registration",
   "POST /api/admin/employees/register/personal": "public registration",
@@ -48,7 +54,7 @@ const PUBLIC = {
 };
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
-const GUARD = /\b(requirePermission|authenticate)\s*\(/;
+const GUARD = /\b(requirePermission|authenticate|authenticateEmployee)\s*\(/;
 // Generated stubs that only return a fixed status message
 const PLACEHOLDER = /message:\s*'IPPIS HR API'/;
 
@@ -113,7 +119,8 @@ if (unguarded.length > 0) {
   console.error(`\n${unguarded.length} API handler(s) have no permission check:\n`);
   for (const { id, file } of unguarded) console.error(`  ${id}\n      ${file}`);
   console.error(
-    "\nAdd requirePermission(req, \"module.resource.action\") or authenticate(req) from lib/rbac.ts,\n" +
+    "\nAdd requirePermission(req, \"module.resource.action\") or authenticate(req) from lib/rbac.ts\n" +
+      "(authenticateEmployee(req) from lib/employee-auth.ts for employee portal routes),\n" +
       "or, if the handler must work without a login, list it in PUBLIC in scripts/check-route-guards.mjs.\n"
   );
   process.exit(1);
