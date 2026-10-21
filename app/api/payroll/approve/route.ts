@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { notifyMany } from "@/lib/employee-notifications"
 
 export const dynamic = "force-dynamic"
 
@@ -47,10 +48,19 @@ export async function POST(req: NextRequest) {
       UPDATE payroll
       SET status = 'approved', updated_at = NOW()
       WHERE payment_id = ANY(${existingIds})
-      RETURNING payment_id
+      RETURNING payment_id, employee_id, payment_date::date::text AS payment_date
     `
 
     await runAudited(req, auth.ctx, { action: "payroll.cycle.approved", targetType: "payroll.cycle", details: { approved: results.map(r => r.payment_id) } }, [])
+
+    // Each employee hears that their payslip is ready
+    await notifyMany("payroll", (results as any[]).map((row) => ({
+      employeeId: String(row.employee_id),
+      title: "Payslip available",
+      message: `Your payslip for the payment of ${row.payment_date} is ready to view.`,
+      link: `/employee/payslips/${row.payment_id}`,
+      dedupeKey: `payslip:${row.payment_id}`,
+    })))
 
     return withCors(req, {
       success: true,

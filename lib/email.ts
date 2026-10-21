@@ -1149,3 +1149,88 @@ Integrated Personnel and Payroll Information System (IPPIS)`,
     return null;
   }
 }
+
+/**
+ * =========================================================================
+ * EMPLOYEE SELF-SERVICE PORTAL EMAILS
+ * =========================================================================
+ */
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
+/**
+ * Sends an employee portal link (invite or password reset).
+ * In local development the link is printed instead, like the OTP above.
+ */
+async function sendEmployeeLinkEmail(to: string, subject: string, heading: string, intro: string, link: string, validity: string) {
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[Employee Email] DEV MODE - email not sent. ${subject} for ${to}: ${link}`);
+    return null;
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"IPPIS HR" <${process.env.SMTP_USER}>`,
+      to,
+      subject,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 520px;">
+          <h2>${escapeHtml(heading)}</h2>
+          <p>${escapeHtml(intro)}</p>
+          <p><a href="${escapeHtml(link)}" style="display:inline-block;padding:10px 18px;background:#0a7d3b;color:#fff;text-decoration:none;border-radius:4px;">Set your password</a></p>
+          <p style="color:#555;font-size:13px;">This link ${escapeHtml(validity)} and can be used once. If you did not expect this email, ignore it.</p>
+        </div>
+      `,
+    });
+    console.log(`[Employee Email] ${subject} sent to ${to}. Message ID: ${info.messageId}`);
+    return info;
+  } catch (error: any) {
+    console.error(`[Employee Email] Failed to send ${subject} to ${to}:`, error);
+    throw new Error(`Failed to send email: ${error.message}`);
+  }
+}
+
+export function sendEmployeeInviteEmail(to: string, name: string, link: string) {
+  return sendEmployeeLinkEmail(
+    to,
+    "Your IPPIS employee portal invitation",
+    `Welcome, ${name}`,
+    "HR has given you access to the IPPIS employee portal. Choose a password to activate your account.",
+    link,
+    "is valid for 48 hours"
+  );
+}
+
+export function sendEmployeePasswordResetEmail(to: string, name: string, link: string) {
+  return sendEmployeeLinkEmail(
+    to,
+    "Reset your IPPIS employee portal password",
+    `Hello, ${name}`,
+    "We received a request to reset your employee portal password.",
+    link,
+    "is valid for 1 hour"
+  );
+}
+
+/** A copy of a portal notification, for employees who asked for email. */
+export async function sendEmployeeNotificationEmail(to: string, name: string, title: string, message: string) {
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[Employee Email] DEV MODE - email not sent. Notification for ${to}: ${title} - ${message}`);
+    return null;
+  }
+  const info = await transporter.sendMail({
+    from: `"IPPIS HR" <${process.env.SMTP_USER}>`,
+    to,
+    subject: title,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 520px;">
+        <p>Hello ${escapeHtml(name)},</p>
+        <p>${escapeHtml(message)}</p>
+        <p style="color:#555;font-size:13px;">You can change which emails you receive under Notification preferences in the employee portal.</p>
+      </div>
+    `,
+  });
+  return info;
+}

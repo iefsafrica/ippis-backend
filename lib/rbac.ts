@@ -66,7 +66,7 @@ function deny(req: NextRequest, status: number, error: string, extra: Record<str
   return withCors(req, { success: false, error, ...extra }, status);
 }
 
-function readToken(req: NextRequest): string | null {
+export function readToken(req: NextRequest): string | null {
   const header = req.headers.get("authorization") || "";
   if (header.toLowerCase().startsWith("bearer ")) {
     const token = header.slice(7).trim();
@@ -159,6 +159,11 @@ export async function authenticate(req: NextRequest): Promise<AuthResult> {
     if (typeof decoded === "string") throw new Error("Unexpected token payload");
     payload = decoded;
   } catch {
+    return { ok: false, response: deny(req, 401, "Invalid or expired token") };
+  }
+
+  // Employee portal tokens are signed with the same secret but never grant admin access
+  if (payload.typ === "employee") {
     return { ok: false, response: deny(req, 401, "Invalid or expired token") };
   }
 
