@@ -2,9 +2,8 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { inviteToPortal } from "@/lib/employee-invite"
 import { sendEmployeeApprovalEmail } from "@/lib/email"
-import bcrypt from "bcryptjs"
-import crypto from "crypto"
 
 export const dynamic = "force-dynamic"
 
@@ -23,19 +22,6 @@ type PendingEmployee = {
   metadata?: Record<string, any>
   created_at?: string
   updated_at?: string
-}
-
-/** Generates a secure temporary password */
-function generateTempPassword(): string {
-  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
-  const special = "!@#$%"
-  let pw = ""
-  for (let i = 0; i < 8; i++) {
-    pw += chars[crypto.randomInt(chars.length)]
-  }
-  pw += special[crypto.randomInt(special.length)]
-  pw += crypto.randomInt(10, 99)
-  return pw.split("").sort(() => crypto.randomInt(3) - 1).join("")
 }
 
 // Handle CORS preflight
@@ -137,52 +123,10 @@ export async function POST(req: NextRequest) {
       WHERE registration_id = ${registrationId}
     `
 
-    // Create admin_users login account for the employee
-    let temporaryPassword: string | undefined
-    try {
-      temporaryPassword = generateTempPassword()
-      const passwordHash = await bcrypt.hash(temporaryPassword, 12)
-
-      await sql`
-        INSERT INTO admin_users (username, email, password_hash, full_name, role, is_active, status, staff_id, created_at, updated_at)
-        VALUES (
-          ${email},
-          ${email},
-          ${passwordHash},
-          ${name},
-          'employee',
-          true,
-          'active',
-          ${employeeId},
-          NOW(),
-          NOW()
-        )
-        ON CONFLICT (email) DO UPDATE SET
-          password_hash = EXCLUDED.password_hash,
-          full_name = EXCLUDED.full_name,
-          role = 'employee',
-          is_active = true,
-          status = 'active',
-          staff_id = EXCLUDED.staff_id,
-          updated_at = NOW()
-      `
-
-      // Assign the 'employee' role in user_roles
-      const employeeRoleRows = await sql`SELECT id FROM roles WHERE key = 'employee' LIMIT 1`
-      const adminUserRows = await sql`SELECT id FROM admin_users WHERE email = ${email} LIMIT 1`
-      if (employeeRoleRows.length > 0 && adminUserRows.length > 0) {
-        const roleId = (employeeRoleRows[0] as any).id
-        const adminUserId = String((adminUserRows[0] as any).id)
-        await sql`
-          INSERT INTO user_roles (user_id, role_id, scope_level, assigned_by, reason, assigned_at)
-          VALUES (${adminUserId}, ${roleId}, 'self', ${String(auth.ctx.userId)}, 'Auto-assigned on employee approval', NOW())
-          ON CONFLICT DO NOTHING
-        `
-      }
-    } catch (accountErr) {
-      console.error("Failed to create employee login account:", accountErr)
-      // Continue — account creation failure should not block approval
-    }
+    // Invite the employee to the employee portal, where they set their own password.
+    // A failed invite does not block the approval; HR can resend it from Employee accounts.
+    const invite = await inviteToPortal(employeeId, auth.ctx.user.username)
+    if (!invite.ok) console.error(`Employee portal invite for ${employeeId} not sent:`, invite.error)
 
     // Send approval + credentials email
     if (email) {
@@ -192,8 +136,6 @@ export async function POST(req: NextRequest) {
         employeeId,
         position: position || undefined,
         department: department || undefined,
-        username: email,
-        temporaryPassword,
       }).catch((err) => {
         console.error("Employee approval email send failed:", err)
       })

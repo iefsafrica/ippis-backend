@@ -579,7 +579,7 @@ function generateApprovalEmailHtml(payload: EmployeeApprovalPayload): string {
               </div>
               <h2 style="margin: 0 0 16px; color: #0f172a; font-size: 20px; font-weight: 600;">Congratulations, ${fullName}</h2>
               <p style="margin: 0 0 20px; color: #475569; font-size: 15px; line-height: 1.6;">
-                Your employment record has been officially approved and activated on the <strong>Integrated Personnel and Payroll Information System (IPPIS)</strong>. Your employee self-service account has been created.
+                Your employment record has been officially approved and activated on the <strong>Integrated Personnel and Payroll Information System (IPPIS)</strong>. You will receive a separate email inviting you to set your password for the employee portal.
               </p>
               
               <!-- Official Employee ID Box -->

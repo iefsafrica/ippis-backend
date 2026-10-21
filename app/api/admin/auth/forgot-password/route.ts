@@ -3,7 +3,6 @@ import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { generateResetToken } from "@/lib/password-utils";
 import { sendPasswordResetEmail } from "@/lib/email";
-import bcrypt from "bcryptjs";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +15,9 @@ export async function OPTIONS(req: NextRequest) {
 /**
  * POST /api/admin/auth/forgot-password
  *
- * Requests a password reset link. Works for BOTH ACTIVE AND PENDING employees:
- * - Checks admin_users, employees (active), and pending_employees (pending)
- * - Auto-provisions an admin_users account if missing
+ * Requests a password reset link for an admin or applicant account.
+ * - Checks admin_users; employees and pending records only fill in the email's name and status
+ * - Only existing admin_users accounts get a link; none is created here
  * - Generates secure 64-char token valid for 60 minutes
  * - Sends official Nigerian Government IPPIS branded HTML email
  */
@@ -118,47 +117,18 @@ export async function POST(req: NextRequest) {
       ? "Pending Employment Application"
       : "Active IPPIS Employee";
 
-    // Auto-provision admin_users account if employee exists in employees/pending but not in admin_users
-    let adminUserId: number;
-    if (adminUser) {
-      adminUserId = Number(adminUser.id);
-    } else {
-      console.log(`[Forgot Password] Auto-provisioning admin_users account for ${email} (isPending: ${isPending})`);
-      const tempPw = await bcrypt.hash(generateResetToken(), 10);
-      const assignedRole = "employee";
-      const assignedStatus = "active";
-
-      const newRows = await sql`
-        INSERT INTO admin_users (username, email, password_hash, full_name, role, status, is_active, staff_id, created_at, updated_at)
-        VALUES (
-          ${email},
-          ${email},
-          ${tempPw},
-          ${fullName},
-          ${assignedRole},
-          ${assignedStatus},
-          true,
-          ${employeeId || null},
-          NOW(),
-          NOW()
-        )
-        ON CONFLICT (email) DO UPDATE SET
-          full_name = EXCLUDED.full_name,
-          updated_at = NOW()
-        RETURNING id
-      `;
-      adminUserId = Number((newRows[0] as any).id);
-
-      // Assign role in user_roles
-      const roleRows = await sql`SELECT id FROM roles WHERE key = 'employee' LIMIT 1`;
-      if (roleRows.length > 0) {
-        await sql`
-          INSERT INTO user_roles (user_id, role_id, scope_level, assigned_at)
-          VALUES (${String(adminUserId)}, ${(roleRows[0] as any).id}, 'self', NOW())
-          ON CONFLICT DO NOTHING
-        `;
-      }
+    // Only existing admin accounts are reset here. No account is created from this
+    // public form: employees reset their portal password through
+    // /api/employee/auth/forgot-password, and the answer stays the same so the
+    // form does not reveal who has an account.
+    if (!adminUser) {
+      console.log(`[Forgot Password] No admin account for ${email}; nothing sent`);
+      return withCors(req, {
+        success: true,
+        message: "If an IPPIS record exists for this email address, password reset instructions have been sent.",
+      });
     }
+    const adminUserId = Number(adminUser.id);
 
     // Generate secure token and 60-minute expiry
     const token = generateResetToken();

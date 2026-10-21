@@ -32,12 +32,12 @@ export function otpMatches(otp: string, storedHash: string) {
 // Account roles that may use the admin sign-in, compared after removing spaces,
 // underscores and hyphens ("Super Admin" -> "superadmin"). What each person can
 // then open is decided by their assigned roles and permissions.
+// Employees are not on this list: they sign in to the employee portal
+// (/api/employee/auth/login) with their own account.
 const ADMIN_SIGN_IN_ROLES = new Set([
   "admin",
   "superadmin",
-  "employee",
   "applicant",
-  "selfservice",
   "centralaccessadmin",
   "centralhradmin",
   "centralpayrolladmin",
