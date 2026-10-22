@@ -59,6 +59,7 @@ export function referencesToMda(companyId: number, companyCode: string | null) {
     { label: "locations", count: byIdOrCode("locations", companyId, code) },
     { label: "company policies", count: byIdOrCode("company_policies", companyId, code) },
     { label: "announcements", count: byIdOrCode("announcements", companyId, code) },
+    { label: "employees", count: () => sql`SELECT COUNT(*)::int AS n FROM employees WHERE company_id = ${companyId}` },
     { label: "user accounts", count: () => sql`SELECT COUNT(*)::int AS n FROM admin_users WHERE mda_id = ${companyId}` },
     { label: "role assignments", count: () => sql`SELECT COUNT(*)::int AS n FROM user_roles WHERE company_id = ${companyId}` },
     { label: "direct permission grants", count: () => sql`SELECT COUNT(*)::int AS n FROM user_permissions WHERE company_id = ${companyId}` },
@@ -67,6 +68,7 @@ export function referencesToMda(companyId: number, companyCode: string | null) {
 
 export function referencesToDepartment(departmentId: number) {
   return tally([
+    { label: "employees", count: () => sql`SELECT COUNT(*)::int AS n FROM employees WHERE department_id = ${departmentId}` },
     { label: "user accounts", count: () => sql`SELECT COUNT(*)::int AS n FROM admin_users WHERE department_id = ${departmentId}` },
     { label: "role assignments", count: () => sql`SELECT COUNT(*)::int AS n FROM user_roles WHERE department_id = ${departmentId}` },
     { label: "direct permission grants", count: () => sql`SELECT COUNT(*)::int AS n FROM user_permissions WHERE department_id = ${departmentId}` },

@@ -83,13 +83,33 @@ export async function GET(req: NextRequest) {
       console.error("EMPLOYEE PROFILE portal tables:", error);
     }
 
+    // The MDA and department the employee is linked to (empty until HR links them)
+    let mda: { id: number; name: string; code: string | null } | null = null;
+    let linkedDepartment: { id: number; name: string } | null = null;
+    try {
+      const rows = await db`
+        SELECT c.id AS mda_id, c.name AS mda_name, c.company_code, d.id AS dept_id, d.name AS dept_name
+        FROM employees e
+        LEFT JOIN companies c ON c.id = e.company_id
+        LEFT JOIN departments d ON d.id = e.department_id
+        WHERE e.id = ${employee.id}
+      `;
+      const link = rows[0];
+      if (link?.mda_id != null) mda = { id: Number(link.mda_id), name: String(link.mda_name), code: link.company_code ?? null };
+      if (link?.dept_id != null) linkedDepartment = { id: Number(link.dept_id), name: String(link.dept_name) };
+    } catch (error) {
+      console.error("EMPLOYEE PROFILE mda link:", error);
+    }
+
     return withCors(req, {
       success: true,
       data: {
         employeeId: employee.id,
+        mda,
         name: employee.name,
         email: employee.email,
-        department: employee.department ?? employment?.department ?? null,
+        department: linkedDepartment?.name ?? employee.department ?? employment?.department ?? null,
+        departmentId: linkedDepartment?.id ?? null,
         position: employee.position ?? employment?.rank_position ?? null,
         // No reporting line is recorded anywhere yet
         reportingManager: null,

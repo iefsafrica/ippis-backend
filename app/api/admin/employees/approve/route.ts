@@ -3,6 +3,7 @@ import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
 import { inviteToPortal } from "@/lib/employee-invite"
+import { linkEmployeeToMda } from "@/lib/employee-mda"
 import { sendEmployeeApprovalEmail } from "@/lib/email"
 
 export const dynamic = "force-dynamic"
@@ -122,6 +123,10 @@ export async function POST(req: NextRequest) {
       DELETE FROM pending_employees
       WHERE registration_id = ${registrationId}
     `
+
+    // Link the employee to the MDA and department named at registration (exact matches only;
+    // anything else is left for HR in /api/admin/employees/mda-mapping)
+    await linkEmployeeToMda(employeeId, auth.ctx.user.username)
 
     // Invite the employee to the employee portal, where they set their own password.
     // A failed invite does not block the approval; HR can resend it from Employee accounts.
