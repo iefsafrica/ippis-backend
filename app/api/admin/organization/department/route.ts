@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requirePermission, runAudited, covers, type AuthContext } from "@/lib/rbac";
+import { requirePermission, runAudited } from "@/lib/rbac";
+import { managesMda } from "@/lib/organisation";
 import { referencesToDepartment, describe } from "@/lib/org-references";
 import { withCors, handleOptions } from "@/lib/cors";
 import { neon } from '@neondatabase/serverless';
@@ -25,13 +26,6 @@ type CreateDepartmentBody = {
   mda_id?: string | number;
   status?: 'active' | 'inactive';
 };
-
-const MANAGE = "organization.structure.manage";
-
-// Organisation changes are limited to MDAs inside the caller's scope
-function managesMda(ctx: AuthContext, companyId: number) {
-  return covers(ctx, MANAGE, { level: "mda", companyId, departmentId: null });
-}
 
 type UpdateDepartmentBody = {
   id: string | number;

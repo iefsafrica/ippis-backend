@@ -87,44 +87,44 @@ export async function POST(req: NextRequest) {
 
   const { name, email, phone, status } = body;
 
-  if (!name || typeof name !== 'string') {
+  const cleanName = typeof name === 'string' ? name.trim() : '';
+  if (!cleanName) {
     return withCors(req, { success: false, message: 'Name is required' }, 400);
   }
 
-  // Get last company_code
-  const lastCodeResult = await sql`
-    SELECT company_code
-    FROM companies
-    ORDER BY created_at DESC
-    LIMIT 1
-  `;
-
-  let newCompanyCode = 'IPPIS-C 00001';
-
-  const lastRow = lastCodeResult[0] as { company_code: string } | undefined;
-
-  if (lastRow?.company_code) {
-    const match = String(lastRow.company_code).match(/\d+$/);
-
-    if (match) {
-      const nextNumber = parseInt(match[0], 10) + 1;
-      const padded = String(nextNumber).padStart(5, '0');
-      newCompanyCode = `IPPIS-C ${padded}`;
-    }
+  const sameName = await sql`SELECT id FROM companies WHERE LOWER(TRIM(name)) = LOWER(${cleanName}) LIMIT 1`;
+  if (sameName.length > 0) {
+    return withCors(req, { success: false, message: `An MDA called '${cleanName}' already exists` }, 409);
   }
 
-  const result = await sql`
-    INSERT INTO companies (company_code, name, email, phone, status, created_at)
-    VALUES (
-      ${newCompanyCode},
-      ${name},
-      ${email ?? null},
-      ${phone ?? null},
-      ${status ?? 'active'},
-      NOW()
-    )
-    RETURNING *
-  `;
+  // The next code is one above the highest existing "IPPIS-C nnnnn" code.
+  // Codes in other formats (the seeded FMF, OHCSF, ...) are ignored, so they
+  // can no longer make the numbering restart and collide. If another MDA is
+  // created at the same moment and takes the number, try the next one.
+  let result: Record<string, any>[] = [];
+  for (let attempt = 0; attempt < 5 && result.length === 0; attempt++) {
+    const highest = await sql`
+      SELECT COALESCE(MAX(CAST(SUBSTRING(TRIM(company_code) FROM '^IPPIS-C ([0-9]+)$') AS INTEGER)), 0)::int AS n
+      FROM companies
+    `;
+    const newCompanyCode = `IPPIS-C ${String(Number(highest[0]?.n ?? 0) + 1 + attempt).padStart(5, '0')}`;
+    try {
+      result = await sql`
+        INSERT INTO companies (company_code, name, email, phone, status, created_at)
+        VALUES (
+          ${newCompanyCode},
+          ${cleanName},
+          ${email ?? null},
+          ${phone ?? null},
+          ${status ?? 'active'},
+          NOW()
+        )
+        RETURNING *
+      `;
+    } catch (error: any) {
+      if (error?.code !== '23505') throw error;
+    }
+  }
 
   const inserted = result[0] as Company | undefined;
 
@@ -132,7 +132,12 @@ export async function POST(req: NextRequest) {
     return withCors(req, { success: false, message: 'Failed to create company' }, 500);
   }
 
-  await runAudited(req, auth.ctx, { action: "organization.company.created", targetType: "organization.company", details: {} }, []);
+  await runAudited(req, auth.ctx, {
+    action: "organization.company.created",
+    targetType: "organization.company",
+    targetId: inserted.id,
+    details: { name: inserted.name, company_code: inserted.company_code },
+  }, []);
 
   return withCors(req, { success: true, data: inserted });
 }

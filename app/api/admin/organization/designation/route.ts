@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { resolveMda, managesMda, mdaIdOf } from "@/lib/organisation";
 import { neon } from '@neondatabase/serverless';
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -39,13 +40,15 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
+    const mdaParam = searchParams.get('company_id') || searchParams.get('mda_id');
+    const mdaFilter = mdaParam && Number.isInteger(Number(mdaParam)) ? Number(mdaParam) : null;
 
     if (id) {
       const result = await sql`
         SELECT d.*, c.name AS company_name
         FROM designations d
         LEFT JOIN companies c
-          ON d.company_code = c.company_code
+          ON c.id = d.company_id OR (d.company_id IS NULL AND TRIM(c.company_code) = TRIM(d.company_code))
         WHERE d.id = ${id}
       `;
 
@@ -64,8 +67,9 @@ export async function GET(req: NextRequest) {
       SELECT d.*, c.name AS company_name
       FROM designations d
       LEFT JOIN companies c
-        ON d.company_code = c.company_code
-      ORDER BY d.created_at DESC
+        ON c.id = d.company_id OR (d.company_id IS NULL AND TRIM(c.company_code) = TRIM(d.company_code))
+      WHERE (${mdaFilter}::int IS NULL OR d.company_id = ${mdaFilter})
+    ORDER BY d.created_at DESC
     `;
 
     return NextResponse.json({
@@ -91,31 +95,27 @@ export async function POST(req: NextRequest) {
     const body = await req.json() as CreateDesignationBody;
     const { company_code, title, description, status } = body;
 
-    if (!company_code || !title) {
+    if (!title) {
       return NextResponse.json(
-        { success: false, message: 'company_code and title are required' },
+        { success: false, message: 'title is required' },
         { status: 400 }
       );
     }
 
-    // Verify company exists
-    const company = await sql`
-      SELECT company_code FROM companies
-      WHERE TRIM(company_code) = TRIM(${company_code})
-    `;
-
-    if (!company.length) {
-      return NextResponse.json(
-        { success: false, message: 'Invalid company_code provided' },
-        { status: 400 }
-      );
+    // The MDA, by company_id or company_code; stored by both
+    const mda = await resolveMda(body as any);
+    if ("error" in mda) {
+      return NextResponse.json({ success: false, message: mda.error }, { status: mda.status });
+    }
+    if (!managesMda(auth.ctx, mda.company.id)) {
+      return NextResponse.json({ success: false, message: 'This MDA is outside your scope' }, { status: 403 });
     }
 
     const result = await sql`
       INSERT INTO designations
-        (company_code, title, description, status, created_at)
+        (company_id, company_code, title, description, status, created_at)
       VALUES
-        (${company_code}, ${title}, ${description ?? null}, ${status ?? 'active'}, NOW())
+        (${mda.company.id}, ${mda.company.company_code}, ${title}, ${description ?? null}, ${status ?? 'active'}, NOW())
       RETURNING *
     `;
 
@@ -146,6 +146,11 @@ export async function PUT(req: NextRequest) {
 
     if (!id) {
       return NextResponse.json({ success: false, message: 'Designation ID is required' }, { status: 400 });
+    }
+
+    const owner = await sql`SELECT * FROM designations WHERE id = ${id}`;
+    if (owner[0] && !managesMda(auth.ctx, await mdaIdOf(owner[0]))) {
+      return NextResponse.json({ success: false, message: 'This record belongs to an MDA outside your scope' }, { status: 403 });
     }
 
     const result = await sql`
@@ -191,6 +196,11 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Designation ID is required' }, { status: 400 });
     }
 
+    const owner = await sql`SELECT * FROM designations WHERE id = ${id}`;
+    if (owner[0] && !managesMda(auth.ctx, await mdaIdOf(owner[0]))) {
+      return NextResponse.json({ success: false, message: 'This record belongs to an MDA outside your scope' }, { status: 403 });
+    }
+
     const result = await sql`
       DELETE FROM designations
       WHERE id = ${id}
@@ -210,6 +220,9 @@ export async function DELETE(req: NextRequest) {
     });
 
   } catch (error) {
+    if ((error as any)?.code === '23503') {
+      return NextResponse.json({ success: false, message: 'This record is still in use elsewhere (for example by performance records), so it cannot be deleted. Set it to inactive instead.' }, { status: 409 });
+    }
     console.error('Designation DELETE error:', error);
     return NextResponse.json({ success: false, message: 'Failed to delete designation' }, { status: 500 });
   }

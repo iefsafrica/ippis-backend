@@ -11,7 +11,7 @@ const sql = neon(process.env.DATABASE_URL!);
 
 export type Reference = { label: string; count: number };
 
-type Check = { label: string; count: () => Promise<any[]> };
+type Check = { label: string; count: () => Promise<any[] | undefined> };
 
 // A table or column that does not exist on this database counts as no references
 async function tally(checks: Check[]): Promise<Reference[]> {
@@ -19,7 +19,7 @@ async function tally(checks: Check[]): Promise<Reference[]> {
   for (const check of checks) {
     try {
       const rows = await check.count();
-      const count = Number(rows[0]?.n ?? 0);
+      const count = Number(rows?.[0]?.n ?? 0);
       if (count > 0) found.push({ label: check.label, count });
     } catch (error: any) {
       if (error?.code !== "42P01" && error?.code !== "42703") throw error;
@@ -28,14 +28,37 @@ async function tally(checks: Check[]): Promise<Reference[]> {
   return found;
 }
 
+// Records linked by MDA id or code. Before organisation-links-migration.sql
+// runs these tables have no company_id, so the code alone is counted.
+function byIdOrCode(table: "designations" | "locations" | "company_policies" | "announcements", companyId: number, code: string) {
+  return async () => {
+    try {
+      switch (table) {
+        case "designations": return await sql`SELECT COUNT(*)::int AS n FROM designations WHERE company_id = ${companyId} OR TRIM(company_code) = ${code}`;
+        case "locations": return await sql`SELECT COUNT(*)::int AS n FROM locations WHERE company_id = ${companyId} OR TRIM(company_code) = ${code}`;
+        case "company_policies": return await sql`SELECT COUNT(*)::int AS n FROM company_policies WHERE company_id = ${companyId} OR TRIM(company_code) = ${code}`;
+        case "announcements": return await sql`SELECT COUNT(*)::int AS n FROM announcements WHERE company_id = ${companyId} OR TRIM(company_code) = ${code}`;
+      }
+    } catch (error: any) {
+      if (error?.code !== "42703") throw error;
+      switch (table) {
+        case "designations": return await sql`SELECT COUNT(*)::int AS n FROM designations WHERE TRIM(company_code) = ${code}`;
+        case "locations": return await sql`SELECT COUNT(*)::int AS n FROM locations WHERE TRIM(company_code) = ${code}`;
+        case "company_policies": return await sql`SELECT COUNT(*)::int AS n FROM company_policies WHERE TRIM(company_code) = ${code}`;
+        case "announcements": return await sql`SELECT COUNT(*)::int AS n FROM announcements WHERE TRIM(company_code) = ${code}`;
+      }
+    }
+  };
+}
+
 export function referencesToMda(companyId: number, companyCode: string | null) {
-  const code = companyCode ?? "";
+  const code = (companyCode ?? "").trim();
   return tally([
     { label: "departments", count: () => sql`SELECT COUNT(*)::int AS n FROM departments WHERE company_id = ${companyId}` },
-    { label: "designations", count: () => sql`SELECT COUNT(*)::int AS n FROM designations WHERE company_code = ${code}` },
-    { label: "locations", count: () => sql`SELECT COUNT(*)::int AS n FROM locations WHERE company_code = ${code}` },
-    { label: "company policies", count: () => sql`SELECT COUNT(*)::int AS n FROM company_policies WHERE company_code = ${code}` },
-    { label: "announcements", count: () => sql`SELECT COUNT(*)::int AS n FROM announcements WHERE company_code = ${code}` },
+    { label: "designations", count: byIdOrCode("designations", companyId, code) },
+    { label: "locations", count: byIdOrCode("locations", companyId, code) },
+    { label: "company policies", count: byIdOrCode("company_policies", companyId, code) },
+    { label: "announcements", count: byIdOrCode("announcements", companyId, code) },
     { label: "user accounts", count: () => sql`SELECT COUNT(*)::int AS n FROM admin_users WHERE mda_id = ${companyId}` },
     { label: "role assignments", count: () => sql`SELECT COUNT(*)::int AS n FROM user_roles WHERE company_id = ${companyId}` },
     { label: "direct permission grants", count: () => sql`SELECT COUNT(*)::int AS n FROM user_permissions WHERE company_id = ${companyId}` },
