@@ -15,11 +15,11 @@ import {
   formatUserAccount,
   loadUserRolesMap,
   normalizeScopeToBackend,
-  normalizeScopeToFrontend,
-  resolveValidScope,
   UserRoleRecord,
 } from "@/lib/user-management";
 import { sendEmployeeCredentialsEmail } from "@/lib/email";
+import { checkRoleAssignment, scopeFromRequest } from "@/lib/role-grants";
+import { generateTemporaryPassword, validatePasswordStrength } from "@/lib/password-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -220,42 +220,39 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Where the account belongs. An MDA or department that does not exist is
+    // refused; it is never swapped for another one or widened to global.
+    const resolved = await scopeFromRequest(scope_level, mda_id, department_id);
+    if ("error" in resolved) {
+      return withCors(req, { success: false, error: resolved.error }, 400);
+    }
+    const scope = resolved.scope;
+    if (!covers(ctx, MANAGE, scope)) {
+      return withCors(req, { success: false, error: "You can only create accounts inside your organisational scope" }, 403);
+    }
+    const verifiedScope = { scope_level: scope.level, company_id: scope.companyId, department_id: scope.departmentId };
+
+    // Roles go through the same checks as /api/roles: privileged roles, scope and separation of duties
+    const roleIdList: number[] = Array.isArray(role_ids)
+      ? role_ids.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+      : [];
+    const roleCheck = await checkRoleAssignment(ctx, null, roleIdList, scope);
+    if (!roleCheck.ok) {
+      return withCors(req, { success: false, error: roleCheck.error, conflicts: roleCheck.conflicts }, roleCheck.status);
+    }
+
+    // A password typed by the administrator must be strong; otherwise a random
+    // one-off password is generated and emailed to the user
+    if (password) {
+      const strength = validatePasswordStrength(String(password));
+      if (!strength.valid) return withCors(req, { success: false, error: strength.message }, 400);
+    }
+    const initialPassword = password ? String(password) : generateTemporaryPassword();
     const salt = await bcrypt.genSalt(10);
-    const initialPassword = password || "TempPassword123!";
     const password_hash = await bcrypt.hash(initialPassword, salt);
 
     const userStatus = status || "active";
     const isActive = userStatus === "active";
-    const validScope = resolveValidScope(
-      scope_level,
-      mda_id && !isNaN(Number(mda_id)) ? Number(mda_id) : null,
-      department_id && !isNaN(Number(department_id)) ? Number(department_id) : null
-    );
-
-    // Verify company and department exist in DB to prevent foreign key crashes
-    let finalCompanyId = validScope.company_id;
-    let finalDeptId = validScope.department_id;
-
-    if (finalCompanyId !== null) {
-      const compRows = await db`SELECT id FROM companies WHERE id = ${finalCompanyId}`;
-      if (compRows.length === 0) {
-        const fallbackComp = await db`SELECT id FROM companies LIMIT 1`;
-        finalCompanyId = fallbackComp[0]?.id ? Number(fallbackComp[0].id) : null;
-      }
-    }
-
-    if (finalDeptId !== null) {
-      const deptRows = await db`SELECT id FROM departments WHERE id = ${finalDeptId}`;
-      if (deptRows.length === 0) {
-        finalDeptId = null;
-      }
-    }
-
-    const verifiedScope = resolveValidScope(
-      scope_level,
-      finalCompanyId,
-      finalDeptId
-    );
 
     // Insert user account
     const insertedUsers = await db`
@@ -285,11 +282,7 @@ export async function POST(req: NextRequest) {
       newUser.staff_id = autoStaffId;
     }
 
-    // Assign roles in user_roles
-    const roleIdList: number[] = Array.isArray(role_ids)
-      ? role_ids.map(Number).filter((n) => Number.isInteger(n) && n > 0)
-      : [];
-
+    // Assign roles in user_roles (already checked above)
     for (const rId of roleIdList) {
       await db`
         INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, assigned_by, reason)
@@ -395,6 +388,64 @@ export async function PATCH(req: NextRequest) {
     const scopeError = await manageError(ctx, targetIdStr);
     if (scopeError) return withCors(req, { success: false, error: scopeError }, 403);
 
+    // Where the account belongs after this change. Only validated when the request
+    // touches it, so editing a name or phone number keeps the stored scope as it is.
+    const scopeTouched = scope_level !== undefined || mda_id !== undefined || department_id !== undefined;
+    let validPatchScope = {
+      scope_level: existing.scope_level ?? null,
+      company_id: existing.mda_id == null ? null : Number(existing.mda_id),
+      department_id: existing.department_id == null ? null : Number(existing.department_id),
+    };
+    if (scopeTouched) {
+      const resolved = await scopeFromRequest(
+        scope_level !== undefined ? scope_level : existing.scope_level,
+        mda_id !== undefined ? mda_id : existing.mda_id,
+        department_id !== undefined ? department_id : existing.department_id
+      );
+      if ("error" in resolved) {
+        return withCors(req, { success: false, error: resolved.error }, 400);
+      }
+      validPatchScope = {
+        scope_level: resolved.scope.level,
+        company_id: resolved.scope.companyId,
+        department_id: resolved.scope.departmentId,
+      };
+    }
+    const newScope = {
+      level: validPatchScope.scope_level ?? "self",
+      companyId: validPatchScope.company_id,
+      departmentId: validPatchScope.department_id,
+    } as const;
+    const scopeChanged =
+      scopeTouched &&
+      // Stored scope names may be the frontend's ("assigned_mda"); compare the backend meaning
+      (validPatchScope.scope_level !== normalizeScopeToBackend(existing.scope_level) ||
+        validPatchScope.company_id !== (existing.mda_id == null ? null : Number(existing.mda_id)) ||
+        validPatchScope.department_id !== (existing.department_id == null ? null : Number(existing.department_id)));
+
+    const currentRoleIds = (await db`SELECT DISTINCT role_id FROM user_roles WHERE user_id = ${targetIdStr}`)
+      .map((r: any) => Number(r.role_id))
+      .sort((a: number, b: number) => a - b);
+    const requestedRoleIds: number[] | null = Array.isArray(role_ids)
+      ? [...new Set(role_ids.map(Number).filter((n: number) => Number.isInteger(n) && n > 0))].sort((a, b) => a - b)
+      : null;
+    const rolesChanged = requestedRoleIds !== null && requestedRoleIds.join(",") !== currentRoleIds.join(",");
+
+    // Nobody changes their own roles or organisational scope
+    if (targetIdStr === ctx.userId && (rolesChanged || scopeChanged)) {
+      return withCors(req, { success: false, error: "You cannot change your own access" }, 403);
+    }
+    if (scopeChanged && !covers(ctx, MANAGE, newScope)) {
+      return withCors(req, { success: false, error: "You can only move accounts within your organisational scope" }, 403);
+    }
+    // Roles are re-saved with the account's scope, so check them when either changes
+    if (requestedRoleIds !== null && (rolesChanged || scopeChanged)) {
+      const roleCheck = await checkRoleAssignment(ctx, targetIdStr, requestedRoleIds, newScope, { replaceExisting: true });
+      if (!roleCheck.ok) {
+        return withCors(req, { success: false, error: roleCheck.error, conflicts: roleCheck.conflicts }, roleCheck.status);
+      }
+    }
+
     // Status mapping
     let newStatus = existing.status || (existing.is_active ? "active" : "deactivated");
     if (status !== undefined) {
@@ -412,7 +463,8 @@ export async function PATCH(req: NextRequest) {
       statusChanged ||
       Boolean(password) ||
       (email && email !== existing.email) ||
-      role_ids !== undefined;
+      rolesChanged ||
+      scopeChanged;
 
     const reason = readReason(body.reason);
     if (sensitive && !reason) {
@@ -428,10 +480,6 @@ export async function PATCH(req: NextRequest) {
     const newFullName = full_name ? String(full_name).trim() : existing.full_name;
     const newStaffId = staff_id !== undefined ? (staff_id ? String(staff_id).trim() : null) : existing.staff_id;
     const newPhone = phone !== undefined ? (phone ? String(phone).trim() : null) : existing.phone;
-    const rawScope = scope_level !== undefined ? scope_level : existing.scope_level;
-    const rawMdaId = mda_id !== undefined ? (mda_id && !isNaN(Number(mda_id)) ? Number(mda_id) : null) : existing.mda_id;
-    const rawDeptId = department_id !== undefined ? (department_id && !isNaN(Number(department_id)) ? Number(department_id) : null) : existing.department_id;
-    const validPatchScope = resolveValidScope(rawScope, rawMdaId, rawDeptId);
     const newNotes = notes !== undefined ? notes : existing.notes;
 
     // Check duplicate username or email or staff_id
@@ -475,17 +523,16 @@ export async function PATCH(req: NextRequest) {
       RETURNING *
     `;
 
-    // Sync role assignments if role_ids provided
-    if (Array.isArray(role_ids)) {
-      const roleIdList = role_ids.map(Number).filter((n) => Number.isInteger(n) && n > 0);
-      await db`DELETE FROM user_roles WHERE user_id = ${targetIdStr}`;
-      for (const rId of roleIdList) {
-        await db`
+    // Replace role assignments (already checked above) in one transaction
+    if (requestedRoleIds !== null && (rolesChanged || scopeChanged)) {
+      await db.transaction([
+        db`DELETE FROM user_roles WHERE user_id = ${targetIdStr}`,
+        ...requestedRoleIds.map((rId) => db`
           INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, assigned_by, reason)
           VALUES (${targetIdStr}, ${rId}, ${validPatchScope.scope_level}, ${validPatchScope.company_id}, ${validPatchScope.department_id}, ${ctx.userId}, ${reason || "Role update"})
           ON CONFLICT DO NOTHING
-        `;
-      }
+        `),
+      ]);
     }
 
     // Run audited log
@@ -504,7 +551,9 @@ export async function PATCH(req: NextRequest) {
           suspension_days: body.suspension_days || null,
           password_changed: Boolean(password),
           email_changed: newEmail !== existing.email,
-          roles_updated: role_ids !== undefined,
+          roles_updated: rolesChanged,
+          scope_changed: scopeChanged,
+          role_ids: requestedRoleIds ?? undefined,
         },
       },
       []

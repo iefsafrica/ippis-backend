@@ -5,9 +5,10 @@ import { requirePermission, runAudited, readReason } from "@/lib/rbac";
 import {
   formatUserAccount,
   loadUserRolesMap,
-  resolveValidScope,
   UserRoleRecord,
 } from "@/lib/user-management";
+import { checkRoleAssignment, checkRoleRevocation, scopeFromRequest } from "@/lib/role-grants";
+import type { Scope } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -101,11 +102,39 @@ export async function POST(req: NextRequest) {
 
       return {
         user: formattedUser,
+        account: u,
         current_roles: userRoles,
         will_change: willChange,
         action_summary: actionSummary,
+        blocked: false,
+        scope: null as Scope | null,
       };
     });
+
+    // Every change goes through the same rules as /api/roles. A user the caller
+    // may not change is reported as blocked, in the preview and in the result.
+    for (const item of affectedUsers) {
+      if (!item.will_change) continue;
+      const uid = String(item.account.id);
+      let check;
+      if (effectiveAction === "assign") {
+        const resolved = await scopeFromRequest(item.account.scope_level, item.account.mda_id, item.account.department_id);
+        if ("error" in resolved) {
+          check = { ok: false as const, status: 400, error: `Account scope is incomplete: ${resolved.error}` };
+        } else {
+          item.scope = resolved.scope;
+          check = await checkRoleAssignment(ctx, uid, [targetRoleId], resolved.scope);
+        }
+      } else {
+        check = await checkRoleRevocation(ctx, uid, targetRoleId);
+      }
+      if (!check.ok) {
+        item.will_change = false;
+        item.blocked = true;
+        item.action_summary = `Blocked: ${check.error}`;
+        applicableCount--;
+      }
+    }
 
     // If PREVIEW: return affected users report immediately
     if (isPreview) {
@@ -123,6 +152,7 @@ export async function POST(req: NextRequest) {
           total_selected: users.length,
           applicable_count: applicableCount,
           already_in_state_count: alreadyInStateCount,
+          blocked_count: affectedUsers.filter((i) => i.blocked).length,
         },
       });
     }
@@ -147,7 +177,7 @@ export async function POST(req: NextRequest) {
         items.push({
           user_id: item.user.id,
           user_name: item.user.full_name,
-          status: "skipped",
+          status: item.blocked ? "error" : "skipped",
           message: item.action_summary,
         });
         continue;
@@ -156,17 +186,13 @@ export async function POST(req: NextRequest) {
       try {
         const uidStr = String(item.user.id);
         if (effectiveAction === "assign") {
-          const validScope = resolveValidScope(
-            item.user.scope_level,
-            item.user.mda_id ? Number(item.user.mda_id) : null,
-            item.user.department_id ? Number(item.user.department_id) : null
-          );
+          const scope = item.scope!;
           await db`
             INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, assigned_by, reason)
             VALUES (
-              ${uidStr}, ${targetRoleId}, ${validScope.scope_level},
-              ${validScope.company_id},
-              ${validScope.department_id},
+              ${uidStr}, ${targetRoleId}, ${scope.level},
+              ${scope.companyId},
+              ${scope.departmentId},
               ${ctx.userId}, ${cleanReason}
             )
             ON CONFLICT DO NOTHING
@@ -210,6 +236,7 @@ export async function POST(req: NextRequest) {
           role: targetRole.name,
           total_processed: users.length,
           succeeded_count: succeeded,
+          blocked: affectedUsers.filter((i) => i.blocked).map((i) => ({ user_id: i.account.id, reason: i.action_summary })),
         },
       },
       []
