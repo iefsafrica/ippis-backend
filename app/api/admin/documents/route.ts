@@ -3,6 +3,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission } from "@/lib/rbac"
+import { recordScope } from "@/lib/mda-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -17,6 +18,7 @@ export async function GET(req: NextRequest) {
     const auth = await requirePermission(req, "employees.documents.view")
     if (!auth.ok) return auth.response
 
+    const sc = recordScope(auth.ctx, "employees.documents.view")
     const employees = await sql`
       SELECT 
         e.registration_id,
@@ -31,7 +33,9 @@ export async function GET(req: NextRequest) {
       FROM pending_employees e
       LEFT JOIN document_uploads d
         ON e.registration_id = d.registration_id
+      LEFT JOIN employment_info ei ON ei.registration_id = e.registration_id
       WHERE e.status = 'pending_approval'
+        AND (${sc.all}::boolean OR ei.company_id = ANY(${sc.companyIds}::int[]) OR ei.department_id = ANY(${sc.departmentIds}::int[]))
       ORDER BY d.upload_date DESC NULLS LAST
     `
 

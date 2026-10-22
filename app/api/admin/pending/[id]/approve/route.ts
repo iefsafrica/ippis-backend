@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { registrationInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 import { inviteToPortal } from "@/lib/employee-invite";
 import { linkEmployeeToMda } from "@/lib/employee-mda";
 import { sendEmployeeApprovalEmail } from "@/lib/email";
@@ -40,6 +41,11 @@ export async function PATCH(req: NextRequest) {
         { success: false, error: "Registration ID is required." },
         400
       );
+    }
+
+    // Only registrations inside the caller's MDA or department scope
+    if (!(await registrationInScope(auth.ctx, "employees.registrations.approve", registrationId))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     // Ensure required tables exist

@@ -3,6 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission } from "@/lib/rbac";
+import { recordScope } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -21,18 +22,23 @@ export async function GET(req: NextRequest) {
     const auth = await requirePermission(req, "employees.documents.view");
     if (!auth.ok) return auth.response;
 
+    // A document belongs to its employee's MDA, or the MDA chosen on a pending registration
+    const sc = recordScope(auth.ctx, "employees.documents.view");
     const rows = await sql`
       SELECT
-        id as document_id,
-        registration_id,
-        appointment_letter_path,
-        educational_certificates_path,
-        profile_image_path,
-        signature_path,
-        status,
-        upload_date
-      FROM document_uploads
-      ORDER BY upload_date DESC NULLS LAST
+        du.id as document_id,
+        du.registration_id,
+        du.appointment_letter_path,
+        du.educational_certificates_path,
+        du.profile_image_path,
+        du.signature_path,
+        du.status,
+        du.upload_date
+      FROM document_uploads du
+      LEFT JOIN employees emp ON emp.registration_id = du.registration_id
+      LEFT JOIN employment_info ei ON ei.registration_id = du.registration_id
+      WHERE (${sc.all}::boolean OR COALESCE(emp.company_id, ei.company_id) = ANY(${sc.companyIds}::int[]) OR COALESCE(emp.department_id, ei.department_id) = ANY(${sc.departmentIds}::int[]))
+      ORDER BY du.upload_date DESC NULLS LAST
     `;
 
     const result = rows.map((r: any) => ({

@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { recordScope } from "@/lib/mda-scope";
 import {
   canonicalizeRegistrationId,
   normalizeRegistrationId,
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
     const surname = body.surname?.trim();
     const firstname = (body.firstname || body.first_name)?.trim();
     const email = body.email?.trim().toLowerCase();
-    const department = body.department?.trim();
+    let department = body.department?.trim();
     const position = body.position?.trim();
 
     if (!firstname || !surname || !email) {
@@ -101,7 +102,39 @@ export async function POST(req: NextRequest) {
     const service_no = body.service_no?.trim() || null;
     const file_no = body.file_no?.trim() || null;
     const rank_position = body.rank_position?.trim() || null;
-    const organization = body.organization?.trim() || null;
+    let organization = body.organization?.trim() || null;
+
+    // The MDA (and optionally department) the new registration belongs to.
+    // Someone without rights across all MDAs must choose one inside their scope.
+    const sc = recordScope(auth.ctx, "employees.records.create");
+    let mdaId: number | null = null;
+    let departmentId: number | null = null;
+    const rawMda = body.company_id ?? body.mda_id;
+    if (rawMda !== undefined && rawMda !== null && rawMda !== "") {
+      mdaId = Number(rawMda);
+      const mdaRows = Number.isInteger(mdaId) ? await sql`SELECT id, name, status FROM companies WHERE id = ${mdaId}` : [];
+      if (!mdaRows[0] || String(mdaRows[0].status ?? "active").toLowerCase() !== "active") {
+        return withCors(req, { success: false, error: "company_id must be an active MDA" }, 400);
+      }
+      organization = mdaRows[0].name;
+      if (body.department_id !== undefined && body.department_id !== null && body.department_id !== "") {
+        departmentId = Number(body.department_id);
+        const deptRows = Number.isInteger(departmentId)
+          ? await sql`SELECT id, name FROM departments WHERE id = ${departmentId} AND company_id = ${mdaId}`
+          : [];
+        if (!deptRows[0]) return withCors(req, { success: false, error: "department_id must be a department of that MDA" }, 400);
+        department = deptRows[0].name;
+      }
+    }
+    if (!sc.all) {
+      if (mdaId === null) {
+        return withCors(req, { success: false, error: "company_id (the MDA) is required" }, 400);
+      }
+      const reachable = sc.companyIds.includes(mdaId) || (departmentId !== null && sc.departmentIds.includes(departmentId));
+      if (!reachable) {
+        return withCors(req, { success: false, error: "That MDA or department is outside your organisational scope" }, 403);
+      }
+    }
     const employment_type = body.employment_type?.trim() || null;
     const probation_period = body.probation_period?.trim() || null;
     const work_location = body.work_location?.trim() || null;
@@ -204,12 +237,14 @@ export async function POST(req: NextRequest) {
         INSERT INTO employment_info (
           registration_id, employment_id_no, service_no, file_no, rank_position, department,
           organization, employment_type, probation_period, work_location, date_of_first_appointment,
-          gl, step, salary_structure, cadre, name_of_bank, account_number, pfa_name, rsapin
+          gl, step, salary_structure, cadre, name_of_bank, account_number, pfa_name, rsapin,
+          company_id, department_id
         )
         VALUES (
           ${registrationId}, ${employment_id_no}, ${service_no}, ${file_no}, ${rank_position}, ${department},
           ${organization}, ${employment_type}, ${probation_period}, ${work_location}, ${date_of_first_appointment},
-          ${grade_level}, ${step}, ${salary_structure}, ${cadre}, ${bank_name}, ${account_number}, ${pfa_name}, ${rsa_pin}
+          ${grade_level}, ${step}, ${salary_structure}, ${cadre}, ${bank_name}, ${account_number}, ${pfa_name}, ${rsa_pin},
+          ${mdaId}, ${departmentId}
         )
       `;
     }

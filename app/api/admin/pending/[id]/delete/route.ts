@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { registrationInScope, OUT_OF_SCOPE } from "@/lib/mda-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -43,6 +44,11 @@ export async function DELETE(req: NextRequest) {
 
     if (!registrationId) {
       return withCors(req, { success: false, error: "Registration ID is required in URL." }, 400)
+    }
+
+    // Only registrations inside the caller's MDA or department scope
+    if (!(await registrationInScope(auth.ctx, "employees.records.delete", registrationId))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404)
     }
 
     // 2️⃣ Check if table exists

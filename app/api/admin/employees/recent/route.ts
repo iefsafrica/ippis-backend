@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission } from "@/lib/rbac";
+import { recordScope } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -79,11 +80,15 @@ export async function GET(req: NextRequest) {
     }
 
     // Fetch 10 most recently added active employees
+    const sc = recordScope(auth.ctx, "employees.records.view");
     const rows = await sql`
-      SELECT * 
-      FROM employees
-      WHERE status = 'active'
-      ORDER BY created_at DESC
+      SELECT e.*, c.name AS mda_name, d.name AS department_name
+      FROM employees e
+      LEFT JOIN companies c ON c.id = e.company_id
+      LEFT JOIN departments d ON d.id = e.department_id
+      WHERE e.status = 'active'
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
+      ORDER BY e.created_at DESC
       LIMIT 10
     `;
 

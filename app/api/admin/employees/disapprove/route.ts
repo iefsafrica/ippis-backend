@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { registrationInScope, OUT_OF_SCOPE } from "@/lib/mda-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -26,6 +27,11 @@ export async function POST(req: NextRequest) {
         success: false,
         error: "Valid registration_id is required",
       }, 400)
+    }
+
+    // Only registrations inside the caller's MDA or department scope
+    if (!(await registrationInScope(auth.ctx, "employees.registrations.approve", registrationId))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404)
     }
 
     console.log("🔄 Disapproving employee:", registrationId)

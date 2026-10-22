@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission } from "@/lib/rbac"
+import { recordScope } from "@/lib/mda-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -70,6 +71,10 @@ export async function GET(req: NextRequest) {
     const page = Number(searchParams.get("page") || "1")
     const limit = Number(searchParams.get("limit") || "10")
     const offset = (page - 1) * limit
+    // Only employees inside the caller's MDA or department scope; ?mda_id= narrows further
+    const sc = recordScope(auth.ctx, "employees.records.view")
+    const mdaParam = searchParams.get("mda_id") || searchParams.get("company_id")
+    const mdaFilter = mdaParam && Number.isInteger(Number(mdaParam)) ? Number(mdaParam) : null
 
     // Ensure table exists
     const exists = await tableExists("employees")
@@ -82,10 +87,14 @@ export async function GET(req: NextRequest) {
 
     // Fetch paginated active employees
     const rows = await sql`
-      SELECT * 
-      FROM employees
-      WHERE status = 'active'
-      ORDER BY created_at DESC
+      SELECT e.*, c.name AS mda_name, c.company_code AS mda_code, d.name AS department_name
+      FROM employees e
+      LEFT JOIN companies c ON c.id = e.company_id
+      LEFT JOIN departments d ON d.id = e.department_id
+      WHERE e.status = 'active'
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
+        AND (${mdaFilter}::int IS NULL OR e.company_id = ${mdaFilter})
+      ORDER BY e.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `
     console.log("Rows fetched:", rows.length)
@@ -95,8 +104,10 @@ export async function GET(req: NextRequest) {
     // Get total count of active employees
     const countResult = await sql`
       SELECT COUNT(*) AS total
-      FROM employees
-      WHERE status = 'active'
+      FROM employees e
+      WHERE e.status = 'active'
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
+        AND (${mdaFilter}::int IS NULL OR e.company_id = ${mdaFilter})
     `
     const total = Number(countResult[0]?.total ?? 0)
 

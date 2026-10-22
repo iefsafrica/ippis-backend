@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited, readReason } from "@/lib/rbac";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 import { INVITE_VALID_HOURS } from "@/lib/employee-auth";
 import { inviteToPortal } from "@/lib/employee-invite";
 
@@ -41,6 +42,8 @@ export async function GET(req: NextRequest) {
     }
 
     const pattern = search ? `%${search}%` : null;
+    // Only employees inside the caller's MDA or department scope
+    const sc = recordScope(auth.ctx, VIEW);
     const rows = await db`
       SELECT e.id AS employee_id, e.name, e.email, e.department, e.position, e.status AS employee_status,
              COALESCE(a.status, 'none') AS account_status,
@@ -48,6 +51,7 @@ export async function GET(req: NextRequest) {
       FROM employees e
       LEFT JOIN employee_accounts a ON a.employee_id = e.id
       WHERE (${employeeId}::text IS NULL OR e.id = ${employeeId})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
         AND (${status}::text IS NULL OR COALESCE(a.status, 'none') = ${status})
         AND (${pattern}::text IS NULL OR e.name ILIKE ${pattern} OR e.email ILIKE ${pattern} OR e.id ILIKE ${pattern})
       ORDER BY e.name ASC
@@ -58,6 +62,7 @@ export async function GET(req: NextRequest) {
       FROM employees e
       LEFT JOIN employee_accounts a ON a.employee_id = e.id
       WHERE (${employeeId}::text IS NULL OR e.id = ${employeeId})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
         AND (${status}::text IS NULL OR COALESCE(a.status, 'none') = ${status})
         AND (${pattern}::text IS NULL OR e.name ILIKE ${pattern} OR e.email ILIKE ${pattern} OR e.id ILIKE ${pattern})
     `;
@@ -85,6 +90,9 @@ export async function POST(req: NextRequest) {
     const employeeId = typeof body.employee_id === "string" ? body.employee_id.trim() : "";
     if (!employeeId) {
       return withCors(req, { success: false, error: "employee_id is required" }, 400);
+    }
+    if (!(await employeeInScope(auth.ctx, MANAGE, employeeId))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     const result = await inviteToPortal(employeeId, auth.ctx.user.username);
@@ -134,6 +142,9 @@ export async function PATCH(req: NextRequest) {
     }
     if (!reason) {
       return withCors(req, { success: false, error: "reason is required" }, 400);
+    }
+    if (!(await employeeInScope(auth.ctx, MANAGE, employeeId))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     const rows = await db`

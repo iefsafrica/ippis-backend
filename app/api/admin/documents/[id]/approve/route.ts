@@ -4,6 +4,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { registrationInScope, OUT_OF_SCOPE } from "@/lib/mda-scope"
 
 export const dynamic = "force-dynamic"
 const sql = neon(process.env.DATABASE_URL!)
@@ -27,6 +28,10 @@ export async function POST(req: NextRequest) {
         success: false,
         error: "registrationId (from URL) is required"
       }, 400)
+    }
+
+    if (!(await registrationInScope(auth.ctx, "employees.documents.verify", registrationId))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404)
     }
 
     // Update the document status to 'approved'

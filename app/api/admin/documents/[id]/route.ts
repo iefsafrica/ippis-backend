@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission } from "@/lib/rbac"
+import { registrationInScope, OUT_OF_SCOPE } from "@/lib/mda-scope"
 
 export const dynamic = "force-dynamic"
 const sql = neon(process.env.DATABASE_URL!)
@@ -25,6 +26,10 @@ export async function GET(req: NextRequest, context: any) {
         { success: false, error: "registrationId (from URL) is required" },
         400
       )
+    }
+
+    if (!(await registrationInScope(auth.ctx, "employees.documents.view", registrationId))) {
+      return withCors(req as unknown as NextRequest, { success: false, error: OUT_OF_SCOPE }, 404)
     }
 
     const result = await sql`
