@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requirePermission, runAudited } from "@/lib/rbac";
+import { requirePermission, runAudited, covers } from "@/lib/rbac";
+import { referencesToMda, describe } from "@/lib/org-references";
 import { neon } from '@neondatabase/serverless';
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -77,8 +78,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requirePermission(req, "organization.structure.manage");
   if (!auth.ok) return auth.response;
+  // A new MDA is outside every MDA-level scope, so creating one needs global scope
+  if (!covers(auth.ctx, "organization.structure.manage", { level: "global", companyId: null, departmentId: null })) {
+    return withCors(req, { success: false, message: 'Creating an MDA needs organisation rights across all MDAs' }, 403);
+  }
 
-  const body = (await req.json()) as CreateCompanyBody;
+  const body = (await req.json().catch(() => ({}))) as CreateCompanyBody;
 
   const { name, email, phone, status } = body;
 
@@ -139,12 +144,15 @@ export async function PUT(req: NextRequest) {
   const auth = await requirePermission(req, "organization.structure.manage");
   if (!auth.ok) return auth.response;
 
-  const body = (await req.json()) as UpdateCompanyBody;
+  const body = (await req.json().catch(() => ({}))) as UpdateCompanyBody;
 
   const { id, name, email, phone, status } = body;
 
   if (!id || typeof id !== 'number') {
     return withCors(req, { success: false, message: 'Valid company ID is required' }, 400);
+  }
+  if (!covers(auth.ctx, "organization.structure.manage", { level: "mda", companyId: id, departmentId: null })) {
+    return withCors(req, { success: false, message: 'This MDA is outside your scope' }, 403);
   }
 
   const result = await sql`
@@ -164,7 +172,12 @@ export async function PUT(req: NextRequest) {
     return withCors(req, { success: false, message: 'Company not found' }, 404);
   }
 
-  await runAudited(req, auth.ctx, { action: "organization.company.updated", targetType: "organization.company", details: {} }, []);
+  await runAudited(req, auth.ctx, {
+    action: "organization.company.updated",
+    targetType: "organization.company",
+    targetId: updated.id,
+    details: { name: updated.name, status: updated.status },
+  }, []);
 
   return withCors(req, { success: true, data: updated });
 }
@@ -189,6 +202,27 @@ export async function DELETE(req: NextRequest) {
     return withCors(req, { success: false, message: 'Invalid ID' }, 400);
   }
 
+  if (!covers(auth.ctx, "organization.structure.manage", { level: "mda", companyId: id, departmentId: null })) {
+    return withCors(req, { success: false, message: 'This MDA is outside your scope' }, 403);
+  }
+
+  const existingRows = await sql`SELECT id, name, company_code FROM companies WHERE id = ${id}`;
+  const existing = existingRows[0] as { id: number; name: string; company_code: string | null } | undefined;
+  if (!existing) {
+    return withCors(req, { success: false, message: 'Company not found' }, 404);
+  }
+
+  // The database would cascade the delete to everything below and silently
+  // remove people's role assignments, so refuse while anything still uses it
+  const references = await referencesToMda(Number(existing.id), existing.company_code);
+  if (references.length > 0) {
+    return withCors(req, {
+      success: false,
+      message: `${existing.name} is still in use (${describe(references)}). Move or remove those first, or set the MDA to inactive instead.`,
+      references,
+    }, 409);
+  }
+
   const result = await sql`
     DELETE FROM companies
     WHERE id = ${id}
@@ -201,7 +235,12 @@ export async function DELETE(req: NextRequest) {
     return withCors(req, { success: false, message: 'Company not found' }, 404);
   }
 
-  await runAudited(req, auth.ctx, { action: "organization.company.deleted", targetType: "organization.company", details: {} }, []);
+  await runAudited(req, auth.ctx, {
+    action: "organization.company.deleted",
+    targetType: "organization.company",
+    targetId: deleted.id,
+    details: { name: deleted.name, company_code: deleted.company_code },
+  }, []);
 
   return withCors(req, {
     success: true,
