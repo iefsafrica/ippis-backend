@@ -3,6 +3,7 @@ import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
 import { notifyMany } from "@/lib/employee-notifications"
+import { recordScope } from "@/lib/mda-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -27,11 +28,15 @@ export async function POST(req: NextRequest) {
       }, 400)
     }
 
-    // Check if payroll records exist and have required data
+    // Check if payroll records exist, have required data and belong to
+    // employees inside the caller's MDA or department; the rest are skipped
+    const sc = recordScope(auth.ctx, "payroll.cycles.approve")
     const existing = await sql`
-      SELECT payment_id FROM payroll
-      WHERE payment_id = ANY(${paymentIds})
-      AND amount > 0 AND employee_id IS NOT NULL
+      SELECT p.payment_id FROM payroll p
+      JOIN employees e ON e.id = p.employee_id
+      WHERE p.payment_id = ANY(${paymentIds})
+      AND p.amount > 0
+      AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
     `
     const existingIds = existing.map(r => r.payment_id)
     const missingIds = paymentIds.filter(id => !existingIds.includes(id))
@@ -39,7 +44,7 @@ export async function POST(req: NextRequest) {
     if (existingIds.length === 0) {
       return withCors(req, {
         success: false,
-        error: "No valid payroll records found to approve. Records must exist and have an amount and employee ID.",
+        error: "No valid payroll records found to approve. Records must exist, have an amount and belong to an employee inside your organisational scope.",
         missingIds
       }, 404)
     }
