@@ -4,6 +4,7 @@ import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited, readReason } from "@/lib/rbac";
 import { leaveBalances } from "@/lib/employee-leave";
 import { todayLagos } from "@/lib/employee-time";
+import { employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,9 @@ export async function GET(req: NextRequest) {
     if (!Number.isInteger(year)) return withCors(req, { success: false, error: "year is not valid" }, 400);
 
     const employee = await db`SELECT id, name FROM employees WHERE id = ${employeeId}`;
-    if (!employee[0]) return withCors(req, { success: false, error: "Employee not found" }, 404);
+    if (!employee[0] || !(await employeeInScope(auth.ctx, "timesheets.leaves.view", employeeId))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     return withCors(req, { success: true, data: { employee: employee[0], year, balances: await leaveBalances(employeeId, year) } });
   } catch (error) {
@@ -56,8 +59,9 @@ export async function PUT(req: NextRequest) {
 
     const type = await db`SELECT id FROM leave_types WHERE code = ${body.leave_type.trim().toLowerCase()}`;
     if (!type[0]) return withCors(req, { success: false, error: "Leave type not found" }, 404);
-    const employee = await db`SELECT id FROM employees WHERE id = ${employeeId}`;
-    if (!employee[0]) return withCors(req, { success: false, error: "Employee not found" }, 404);
+    if (!(await employeeInScope(auth.ctx, "timesheets.leaves.manage", employeeId))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     await runAudited(
       req,

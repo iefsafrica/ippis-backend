@@ -3,6 +3,7 @@ import { requirePermission, runAudited } from "@/lib/rbac";
 import { notify } from "@/lib/employee-notifications";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -34,6 +35,13 @@ interface UpdateLeaveBody {
   status?: "pending" | "approved" | "rejected";
 }
 
+// Whether the leave exists and its employee is inside the caller's scope
+async function leaveInScope(ctx: Parameters<typeof employeeInScope>[0], id: number) {
+  if (!Number.isInteger(id)) return false;
+  const [row] = await sql`SELECT employee_code FROM leaves WHERE id = ${id}`;
+  return !!row && (await employeeInScope(ctx, "timesheets.leaves.manage", row.employee_code));
+}
+
 /* -------------------------
 OPTIONS (CORS)
 ------------------------- */
@@ -54,20 +62,24 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    // Only the leave of employees inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "timesheets.leaves.view");
 
     if (id) {
 
       const result = await sql`
-        SELECT *,
-        (to_date - from_date) + 1 AS days
-        FROM leaves
-        WHERE id = ${Number(id)}
+        SELECT l.*,
+        (l.to_date - l.from_date) + 1 AS days
+        FROM leaves l
+        LEFT JOIN employees e ON e.id = l.employee_code
+        WHERE l.id = ${Number(id)}
+          AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       `;
 
       if (!result.length) {
         return withCors(req,{
           success:false,
-          message:"Leave not found"
+          message:OUT_OF_SCOPE
         },404);
       }
 
@@ -78,10 +90,12 @@ export async function GET(req: NextRequest) {
     }
 
     const result = await sql`
-      SELECT *,
-      (to_date - from_date) + 1 AS days
-      FROM leaves
-      ORDER BY created_at DESC
+      SELECT l.*,
+      (l.to_date - l.from_date) + 1 AS days
+      FROM leaves l
+      LEFT JOIN employees e ON e.id = l.employee_code
+      WHERE (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
+      ORDER BY l.created_at DESC
     `;
 
     return withCors(req,{
@@ -166,6 +180,10 @@ export async function POST(req: NextRequest) {
 
     }
 
+    if (!(await employeeInScope(auth.ctx, "timesheets.leaves.manage", employee.id))) {
+      return withCors(req,{ success:false, message:OUT_OF_SCOPE },404);
+    }
+
     /* -------------------------
        Insert Leave
     ------------------------- */
@@ -245,6 +263,10 @@ export async function PUT(req: NextRequest) {
 
     }
 
+    if (!(await leaveInScope(auth.ctx, Number(id)))) {
+      return withCors(req,{ success:false, message:OUT_OF_SCOPE },404);
+    }
+
     const result = await sql`
       UPDATE leaves
       SET
@@ -319,6 +341,10 @@ export async function DELETE(req: NextRequest) {
         message:"Leave ID required"
       },400);
 
+    }
+
+    if (!(await leaveInScope(auth.ctx, Number(id)))) {
+      return withCors(req,{ success:false, message:OUT_OF_SCOPE },404);
     }
 
     const result = await sql`

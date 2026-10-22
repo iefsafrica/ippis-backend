@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -23,6 +24,12 @@ interface EmployeeRow {
   employee_name: string;
 }
 
+// Whether the leave exists and its employee is inside the caller's scope
+async function leaveInScope(ctx: Parameters<typeof employeeInScope>[0], id: unknown) {
+  const [row] = await sql`SELECT employee_id FROM employee_leaves WHERE id::text = ${String(id)}`;
+  return !!row && (await employeeInScope(ctx, "timesheets.leaves.manage", row.employee_id));
+}
+
 /* -------------------- CORS -------------------- */
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
@@ -37,19 +44,16 @@ export async function GET(req: NextRequest) {
     const id = req.nextUrl.searchParams.get("id");
     const employee_id = req.nextUrl.searchParams.get("employee_id");
 
-    let leaves;
-
-    if (id) {
-      leaves = await sql`SELECT * FROM employee_leaves WHERE id = ${id}`;
-    } else if (employee_id) {
-      leaves = await sql`
-        SELECT * FROM employee_leaves
-        WHERE employee_id = ${employee_id}
-        ORDER BY start_date ASC
-      `;
-    } else {
-      leaves = await sql`SELECT * FROM employee_leaves ORDER BY start_date ASC`;
-    }
+    // Only the leave of employees inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "timesheets.leaves.view");
+    const leaves = await sql`
+      SELECT l.* FROM employee_leaves l
+      LEFT JOIN employees e ON e.id::text = l.employee_id::text
+      WHERE (${id}::text IS NULL OR l.id::text = ${id})
+        AND (${employee_id}::text IS NULL OR l.employee_id::text = ${employee_id})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
+      ORDER BY l.start_date ASC
+    `;
 
     return withCors(req, { success: true, data: leaves });
   } catch (error) {
@@ -107,6 +111,9 @@ export async function POST(req: NextRequest) {
 
     const employee = employeeRow[0]!; // non-null assertion fixes TS error
     const employee_name = employee.employee_name;
+    if (!(await employeeInScope(auth.ctx, "timesheets.leaves.manage", employee.employee_key))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     // ---------- Insert leave ----------
     const result = await sql`
@@ -170,6 +177,7 @@ export async function PUT(req: NextRequest) {
     if (!id) {
       return withCors(req, { success: false, error: "Leave id is required" }, 400);
     }
+    if (!(await leaveInScope(auth.ctx, id))) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
 
     let employee_name: string | undefined;
 
@@ -195,6 +203,10 @@ export async function PUT(req: NextRequest) {
 
       const employee = employeeRow[0]!; // non-null assertion fixes TS error
       employee_name = employee.employee_name;
+      // The leave may only be moved to another employee inside the caller's scope
+      if (!(await employeeInScope(auth.ctx, "timesheets.leaves.manage", employee.employee_key))) {
+        return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+      }
     }
 
     // ---------- Update leave ----------
@@ -246,6 +258,7 @@ export async function DELETE(req: NextRequest) {
     if (!id) {
       return withCors(req, { success: false, error: "Leave id is required" }, 400);
     }
+    if (!(await leaveInScope(auth.ctx, id))) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
 
     await sql`DELETE FROM employee_leaves WHERE id = ${id}`;
 

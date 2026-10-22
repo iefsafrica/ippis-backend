@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -38,6 +39,13 @@ type UpdateAttendanceBody = {
   notes?: string;
 };
 
+// Whether the attendance record exists and its employee is inside the caller's scope
+async function attendanceInScope(ctx: Parameters<typeof employeeInScope>[0], id: number) {
+  if (!Number.isInteger(id)) return false;
+  const [row] = await sql`SELECT employee_code FROM attendance WHERE id = ${id}`;
+  return !!row && (await employeeInScope(ctx, "timesheets.attendance.manage", row.employee_code));
+}
+
 // -------------------------
 // OPTIONS (CORS)
 // -------------------------
@@ -56,23 +64,25 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const idParam = searchParams.get("id"); // attendance ID
     const employee_code = searchParams.get("employee_code");
+    // Only the attendance of employees inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "timesheets.attendance.view");
 
     if (idParam) {
-      const result = await sql`SELECT * FROM attendance WHERE id = ${Number(idParam)}`;
-      if (!result.length) return withCors(req, { success: false, message: "Attendance not found" }, 404);
+      const result = await sql`
+        SELECT a.* FROM attendance a LEFT JOIN employees e ON e.id = a.employee_code
+        WHERE a.id = ${Number(idParam)}
+          AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
+      `;
+      if (!result.length) return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
       return withCors(req, { success: true, data: result[0] });
     }
 
-    if (employee_code) {
-      const result = await sql`
-        SELECT * FROM attendance
-        WHERE employee_code = ${employee_code}
-        ORDER BY attendance_date DESC
-      `;
-      return withCors(req, { success: true, data: result });
-    }
-
-    const result = await sql`SELECT * FROM attendance ORDER BY attendance_date DESC`;
+    const result = await sql`
+      SELECT a.* FROM attendance a LEFT JOIN employees e ON e.id = a.employee_code
+      WHERE (${employee_code}::text IS NULL OR a.employee_code = ${employee_code})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
+      ORDER BY a.attendance_date DESC
+    `;
     return withCors(req, { success: true, data: result });
   } catch (error) {
     console.error("Attendance GET error:", error);
@@ -104,6 +114,9 @@ export async function POST(req: NextRequest) {
     `;
     const employee = employeeResult[0];
     if (!employee) return withCors(req, { success: false, message: `Employee with ID ${employee_code} does not exist` }, 404);
+    if (!(await employeeInScope(auth.ctx, "timesheets.attendance.manage", employee.id))) {
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
+    }
 
     // ✅ Prevent duplicate attendance
     const existing = await sql`
@@ -162,6 +175,7 @@ export async function PUT(req: NextRequest) {
     const { id, clock_in, clock_out, status, notes } = body;
 
     if (!id) return withCors(req, { success: false, message: "Attendance ID required" }, 400);
+    if (!(await attendanceInScope(auth.ctx, Number(id)))) return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
 
     const result = await sql`
       UPDATE attendance
@@ -197,6 +211,7 @@ export async function DELETE(req: NextRequest) {
     const id = searchParams.get("id");
 
     if (!id) return withCors(req, { success: false, message: "Attendance ID required" }, 400);
+    if (!(await attendanceInScope(auth.ctx, Number(id)))) return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
 
     const result = await sql`
       DELETE FROM attendance

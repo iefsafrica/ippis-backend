@@ -29,7 +29,8 @@ export function recordScope(ctx: AuthContext, key: string): RecordScope {
   return { all: s.global, companyIds: s.companyIds, departmentIds: s.departmentIds };
 }
 
-function inScope(sc: RecordScope, companyId: unknown, departmentId: unknown) {
+/** Whether a record of this MDA and department falls inside the scope. */
+export function inScope(sc: RecordScope, companyId: unknown, departmentId: unknown) {
   if (sc.all) return true;
   if (companyId != null && sc.companyIds.includes(Number(companyId))) return true;
   if (departmentId != null && sc.departmentIds.includes(Number(departmentId))) return true;
