@@ -37,6 +37,8 @@ export function otpMatches(otp: string, storedHash: string) {
 const ADMIN_SIGN_IN_ROLES = new Set([
   "admin",
   "superadmin",
+  "employee",
+  "selfservice",
   "applicant",
   "centralaccessadmin",
   "centralhradmin",

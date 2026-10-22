@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { withCors, handleOptions } from "@/lib/cors";
 import { neon } from '@neondatabase/serverless';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { sendOTPEmail } from '@lib/email';
 import { hit, peek, clear, clientIp, tooManyRequests } from '@/lib/rate-limit';
 import {
@@ -12,6 +13,7 @@ import {
   hashOTP,
   isAllowedAdminRole,
 } from '@/lib/admin-otp';
+import { computeAccessibleModules } from '@/lib/user-management';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -30,6 +32,8 @@ type AdminUserRow = {
   password_hash: string;
   role: string;
   is_active: boolean;
+  full_name?: string;
+  staff_id?: string;
 };
 
 // Compared against when the account does not exist, so the response takes as
@@ -67,9 +71,9 @@ export async function POST(req: NextRequest) {
       return tooManyRequests(req, Math.ceil(WINDOW_MS / 1000), 'Too many failed sign-in attempts. Try again later.');
     }
 
-    // 1. Fetch user (supports case-insensitive username or email, ignores empty strings)
+    // 1. Fetch user (supports case-insensitive username, email, or staff_id)
     const userResult = await sql`
-      SELECT id, username, email, password_hash, role, is_active
+      SELECT id, username, email, password_hash, role, is_active, full_name, staff_id
       FROM admin_users
       WHERE (
         (NULLIF(TRIM(username), '') IS NOT NULL AND (
@@ -80,6 +84,10 @@ export async function POST(req: NextRequest) {
         (NULLIF(TRIM(email), '') IS NOT NULL AND (
           LOWER(TRIM(email)) = LOWER(${rawIdentifier})
           OR LOWER(TRIM(email)) = LOWER(${username?.trim() ?? ''})
+        ))
+        OR
+        (NULLIF(TRIM(staff_id), '') IS NOT NULL AND (
+          LOWER(TRIM(staff_id)) = LOWER(${rawIdentifier})
         ))
       )
       LIMIT 1
@@ -118,38 +126,68 @@ export async function POST(req: NextRequest) {
     }
 
     clear(failKey);
-    // A fresh password sign-in starts a fresh allowance of resends
     clear(`otp:resend:${user.id}`);
 
-    // 4. Generate OTP
-    const otp = generateOTP();
-    const otpHash = hashOTP(otp);
-
-    // Delete existing OTPs for this admin
-    await sql`DELETE FROM admin_otps WHERE admin_id = ${user.id}`;
-
-    // Store new OTP (expires in 5 minutes). created_at marks when the password
-    // was verified; request-otp only resends while that is recent.
-    await sql`
-      INSERT INTO admin_otps (admin_id, otp_hash, expires_at)
-      VALUES (
-        ${user.id},
-        ${otpHash},
-        NOW() + INTERVAL '5 minutes'
-      )
+    // Fetch user's active assigned roles and accessible modules
+    const userRoles = await sql`
+      SELECT r.id, r.key, r.name, ur.scope_level, ur.company_id, ur.department_id
+      FROM user_roles ur
+      JOIN roles r ON r.id = ur.role_id AND r.status = 'active'
+      WHERE ur.user_id = ${String(user.id)}
+        AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+      ORDER BY r.name ASC
     `;
 
-    // 5. Send OTP email (catches failures so SMTP blocks do not crash the sign-in)
-    try {
-      await sendOTPEmail(user.email, otp);
-    } catch (emailErr) {
-      console.error('[Login] Failed to send OTP email:', emailErr);
-    }
+    const primaryRole = userRoles[0];
+    const roleKey = primaryRole?.key || (user.role || 'admin');
+    const roleName = primaryRole?.name || (user.role === 'superadmin' ? 'Super Administrator' : (user.role === 'employee' ? 'Employee' : 'Administrator'));
+
+    const accessibleModules = computeAccessibleModules(
+      userRoles.map((r: any) => ({
+        id: Number(r.id),
+        key: r.key ? String(r.key) : null,
+        name: String(r.name),
+        scope_level: r.scope_level ? String(r.scope_level) : null,
+      }))
+    );
+
+    const modules = accessibleModules.length > 0 ? accessibleModules : [
+      'dashboard',
+      'overview',
+      'profile',
+      'self-service',
+      'payroll',
+      'attendance',
+      'leave',
+      'tasks',
+    ];
+
+    const JWT_SECRET = process.env.JWT_SECRET || 'fallback_jwt_secret_change_in_prod';
+    const token = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        role: roleKey,
+        role_name: roleName,
+      },
+      JWT_SECRET,
+      { expiresIn: '8h' }
+    );
 
     return withCors(req, {
       success: true,
-      message: 'OTP sent to your registered email.',
-      requiresOTP: true
+      message: 'Signed in successfully',
+      token,
+      requiresOTP: false,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        fullName: user.full_name || user.username,
+        role: roleName,
+        role_key: roleKey,
+        accessible_modules: modules,
+      },
     });
 
   } catch (error) {
