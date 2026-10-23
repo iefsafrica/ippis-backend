@@ -2,7 +2,7 @@
   "info": {
     "name": "IPPIS HRMS: all API tests",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Every API test for the IPPIS HRMS backend in one collection. Run the three parts in order; each part signs in again at its start, so a part can also be run on its own.\n\nA. Roles and permissions: RBAC, route guards, separation of duties, account lifecycle and sign-in protection.\nB. MDA scope, transfers and overview: each MDA sees only its own records, transfers move people and remove old access, the per-MDA overview, and the protected public registration flow.\nC. Employee portal: invite, sign-in, profile, attendance, leave, payroll, tasks, documents, training and notifications.\n\nBEFORE THE FIRST RUN\n1. These migrations must be on the database the server uses (check with your notes; all are safe to re-run): database/rbac-migration.sql, the three database/employee-portal-migration*.sql files, database/organisation-links-migration.sql, database/employee-mda-migration.sql, database/transfer-migration.sql.\n2. Start the backend with `pnpm dev` (baseUrl defaults to http://localhost:8000).\n3. In Variables, set adminUsername and adminPassword (your super admin), and employeeId (a TEST employee record that has no portal account yet, for part C). testPassword is the password given to the test accounts; the default meets the password rules.\n\nCODES AND LINKS\nWith `pnpm dev`, sign-in codes, invite links and reset links are printed in the backend terminal. Copy them into the variable a request's description names: otp, testOtp, hrOtp, inviteToken, resetToken. Requests that upload a file (EP110, EP115, EP117) need a file chosen in their Body tab.\n\nWHAT IT WRITES\nTest admin accounts, a custom role and test users are created and deleted again. Part B leaves two test employees (\"Postman MdaA\" and \"Postman MdaB\") with an attendance record and two transfers; part C gives the employeeId record a portal account and test requests. Use test records only."
+    "description": "Every API test for the IPPIS HRMS backend in one collection. Run the three parts in order; each part signs in again at its start, so a part can also be run on its own.\n\nA. Roles and permissions: RBAC, route guards, separation of duties, account lifecycle and sign-in protection.\nB. MDA scope, transfers and overview: each MDA sees only its own records, transfers move people and remove old access, the per-MDA overview, and the protected public registration flow.\nC. Employee portal: invite, sign-in, profile, attendance, leave, payroll, tasks, documents, training and notifications.\nD. Access, approvals, restructuring and payroll runs: temporary access to another MDA, access reviews, leave approval rights, restructuring and payroll runs (dry runs), MDA ownership of the shared modules.\n\nBEFORE THE FIRST RUN\n1. These migrations must be on the database the server uses (check with your notes; all are safe to re-run): database/rbac-migration.sql, the three database/employee-portal-migration*.sql files, database/organisation-links-migration.sql, database/employee-mda-migration.sql, database/transfer-migration.sql, database/mda-completion-migration.sql.\n2. Start the backend with `pnpm dev` (baseUrl defaults to http://localhost:8000).\n3. In Variables, set adminUsername and adminPassword (your super admin), and employeeId (a TEST employee record that has no portal account yet, for part C). testPassword is the password given to the test accounts; the default meets the password rules.\n\nCODES AND LINKS\nWith `pnpm dev`, sign-in codes, invite links and reset links are printed in the backend terminal. Copy them into the variable a request's description names: otp, testOtp, hrOtp, inviteToken, resetToken. Requests that upload a file (EP110, EP115, EP117) need a file chosen in their Body tab.\n\nWHAT IT WRITES\nTest admin accounts, a custom role and test users are created and deleted again. Part B leaves two test employees (\"Postman MdaA\" and \"Postman MdaB\") with an attendance record and two transfers; part C gives the employeeId record a portal account and test requests. Use test records only."
   },
   "item": [
     {
@@ -16727,6 +16727,1832 @@
           ]
         }
       ]
+    },
+    {
+      "name": "D. Access, approvals, restructuring and payroll runs",
+      "description": "Temporary access to another MDA, access reviews, the approve permission for leave, restructuring (dry runs), payroll runs per MDA (dry runs), MDA ownership of the shared modules and the continue-link request.\n\nSafe on live data: restructuring and payroll runs are dry runs only; the access review it opens keeps every grant and is completed; the test account and programme are deleted at the end.\n\nRun in order from AX01. Needs database/mda-completion-migration.sql. Codes: `otp` (AX02) and `reqOtp` (AX09) from the backend terminal.",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Stops a request whose variables are still empty, instead of sending broken values",
+              "const setByTheRequest = [\"reqUsername\", \"inSevenDays\", \"period\"];",
+              "const text = JSON.stringify(pm.request.toJSON());",
+              "const used = [...new Set([...text.matchAll(/\\{\\{(\\w+)\\}\\}/g)].map(m => m[1]))];",
+              "const empty = used.filter(v => !setByTheRequest.includes(v) && [undefined, null, \"\"].includes(pm.variables.get(v)));",
+              "if (empty.length) {",
+              "  const codes = empty.filter(v => v === \"otp\" || v === \"reqOtp\");",
+              "  const msg = codes.length",
+              "    ? \"Set \" + codes.join(\" and \") + \": copy the sign-in code from the backend terminal into the collection variable.\"",
+              "    : \"Empty variable(s): \" + empty.join(\", \") + \". Run part D in order from AX01.\";",
+              "  pm.test(msg, () => { throw new Error(msg); });",
+              "  if (pm.execution && typeof pm.execution.skipRequest === \"function\") pm.execution.skipRequest();",
+              "  else throw new Error(msg);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "item": [
+        {
+          "name": "1. Setup",
+          "item": [
+            {
+              "name": "AX01 Super Administrator login (sends OTP)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"username\": \"{{adminUsername}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX02 Super Administrator verify OTP",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/auth/login/verify-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "auth",
+                    "login",
+                    "verify-otp"
+                  ]
+                },
+                "description": "Copy the code from the backend terminal into `otp` first.",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"username\": \"{{adminUsername}}\",\n  \"otp\": \"{{otp}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "pm.collectionVariables.set(\"token\", pm.response.json().token);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX03 Active MDAs",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/organization/company",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "organization",
+                    "company"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "const list = (pm.response.json().data || []).filter(m => String(m.status || \"active\").toLowerCase() === \"active\");",
+                      "pm.collectionVariables.set(\"activeMdas\", JSON.stringify(list.map(m => ({ id: String(m.id), name: m.name }))));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX04 Choose MDA A, MDA B and a department of MDA A",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/organization/department",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "organization",
+                    "department"
+                  ]
+                },
+                "description": "Uses mdaA / mdaB if already set (for example by part B).",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "const mdas = JSON.parse(pm.collectionVariables.get(\"activeMdas\"));",
+                      "const depts = pm.response.json().data || [];",
+                      "const withDept = mdas.filter(m => depts.some(d => String(d.company_id) === m.id));",
+                      "const a = pm.collectionVariables.get(\"mdaA\") || withDept[0].id;",
+                      "const b = pm.collectionVariables.get(\"mdaB\") || withDept.find(m => m.id !== String(a)).id;",
+                      "pm.collectionVariables.set(\"mdaA\", a); pm.collectionVariables.set(\"mdaB\", b);",
+                      "pm.collectionVariables.set(\"deptA\", depts.find(d => String(d.company_id) === String(a)).id);",
+                      "pm.test(\"two MDAs with departments\", () => pm.expect(String(a)).to.not.eql(String(b)));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX05 Role ids",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/roles",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "roles"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "pm.collectionVariables.set(\"hrOfficerRoleId\", pm.response.json().data.find(r => r.key === \"hr_officer\").id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX06 Create a test user",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/users/admin",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "admin"
+                  ]
+                },
+                "description": "A test account in MDA A that will ask for access to MDA B.",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"username\": \"{{reqUsername}}\",\n  \"email\": \"{{reqUsername}}@example.com\",\n  \"password\": \"{{testPassword}}\",\n  \"full_name\": \"Postman Access Test\",\n  \"role\": \"admin\",\n  \"scope_level\": \"mda\",\n  \"mda_id\": {{mdaA}},\n  \"reason\": \"Postman access test\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is one of [200, 201]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                      "pm.collectionVariables.set(\"reqUserId\", pm.response.json().data.id);"
+                    ]
+                  }
+                },
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set(\"reqUsername\", \"postman_access_\" + Date.now());"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX07 Give it HR Officer for MDA A",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/roles",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "roles"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"assign\",\n  \"user_id\": \"{{reqUserId}}\",\n  \"role_id\": {{hrOfficerRoleId}},\n  \"scope_level\": \"mda\",\n  \"company_id\": {{mdaA}},\n  \"reason\": \"Postman access test\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is one of [200, 201]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX08 Test user login (sends OTP)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"username\": \"{{reqUsername}}\",\n  \"password\": \"{{testPassword}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX09 Test user verify OTP",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/auth/login/verify-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "auth",
+                    "login",
+                    "verify-otp"
+                  ]
+                },
+                "description": "Copy the test user's code into `reqOtp` first.",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"username\": \"{{reqUsername}}\",\n  \"otp\": \"{{reqOtp}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "pm.collectionVariables.set(\"reqToken\", pm.response.json().token);"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "2. Temporary access to another MDA",
+          "item": [
+            {
+              "name": "AX10 Ask for HR Officer in MDA B for 7 days",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/access/requests",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "access",
+                    "requests"
+                  ]
+                },
+                "description": "Temporary access to another MDA, with a reason and an end date (at most 90 days).",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{reqToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"role_id\": {{hrOfficerRoleId}},\n  \"company_id\": {{mdaB}},\n  \"until\": \"{{inSevenDays}}\",\n  \"reason\": \"Covering MDA B HR during leave\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 201\", () => pm.response.to.have.status(201));",
+                      "pm.collectionVariables.set(\"accessRequestId\", pm.response.json().data.id);"
+                    ]
+                  }
+                },
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set(\"inSevenDays\", new Date(Date.now() + 7 * 86400000).toISOString());"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX11 Nobody approves their own request",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/access/requests",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "access",
+                    "requests"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{reqToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"id\": {{accessRequestId}},\n  \"decision\": \"approve\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 403\", () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX12 An access administrator approves it",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/access/requests",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "access",
+                    "requests"
+                  ]
+                },
+                "description": "The role is granted with the end date.",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"id\": {{accessRequestId}},\n  \"decision\": \"approve\",\n  \"note\": \"Agreed for cover\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX13 The user now holds HR Officer in MDA B until the end date",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/roles?user_id={{reqUserId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "roles"
+                  ],
+                  "query": [
+                    {
+                      "key": "user_id",
+                      "value": "{{reqUserId}}"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{reqToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "const b = pm.response.json().data.find(r => String(r.company_id) === String(pm.collectionVariables.get(\"mdaB\")));",
+                      "pm.test(\"temporary grant with an end date\", () => { pm.expect(b).to.be.an(\"object\"); pm.expect(b.expires_at).to.be.a(\"string\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX14 It can be ended early",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/access/requests",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "access",
+                    "requests"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"id\": {{accessRequestId}},\n  \"decision\": \"revoke\",\n  \"note\": \"No longer needed\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "3. Access reviews",
+          "item": [
+            {
+              "name": "AX15 A user without assignment rights cannot start a review",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/access/reviews",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "access",
+                    "reviews"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{reqToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"company_id\": {{mdaA}}\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 403\", () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX16 Start MDA A's access review",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/access/reviews",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "access",
+                    "reviews"
+                  ]
+                },
+                "description": "Takes a snapshot of every grant in MDA A. If one is already open, its id is used.",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"company_id\": {{mdaA}},\n  \"due_in_days\": 7\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is one of [201, 409]\", () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));",
+                      "if (pm.response.code === 201) pm.collectionVariables.set(\"reviewId\", pm.response.json().data.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX17 Find the open review",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/access/reviews",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "access",
+                    "reviews"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "const open = pm.response.json().data.find(r => r.status === \"open\" && String(r.company_id) === String(pm.collectionVariables.get(\"mdaA\")));",
+                      "pm.test(\"open review of MDA A\", () => pm.expect(open).to.be.an(\"object\"));",
+                      "pm.collectionVariables.set(\"reviewId\", open.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX18 The review lists the test user's grant",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/access/reviews?id={{reviewId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "access",
+                    "reviews"
+                  ],
+                  "query": [
+                    {
+                      "key": "id",
+                      "value": "{{reviewId}}"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "const d = pm.response.json().data;",
+                      "const mine = d.items.filter(i => String(i.user_id) === String(pm.collectionVariables.get(\"reqUserId\")));",
+                      "pm.test(\"test user's HR Officer grant is in the snapshot\", () => pm.expect(mine.some(i => i.grant_key === \"hr_officer\")).to.be.true);",
+                      "pm.collectionVariables.set(\"reviewItemIds\", JSON.stringify(d.items.filter(i => !i.decision).map(i => i.id)));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX19 Completing needs every grant decided",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/access/reviews",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "access",
+                    "reviews"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"review_id\": {{reviewId}},\n  \"action\": \"complete\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 409\", () => pm.response.to.have.status(409));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX20 Keep every grant (no access changes)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/access/reviews",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "access",
+                    "reviews"
+                  ]
+                },
+                "description": "Keeps all grants so the test changes nobody's access.",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"item_ids\": {{reviewItemIds}},\n  \"decision\": \"keep\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX21 Complete the review",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/access/reviews",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "access",
+                    "reviews"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"review_id\": {{reviewId}},\n  \"action\": \"complete\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "4. Approvals follow the approve permission",
+          "item": [
+            {
+              "name": "AX22 An HR officer cannot approve leave",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/timesheets/attendance/leaves",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "timesheets",
+                    "attendance",
+                    "leaves"
+                  ]
+                },
+                "description": "Approving leave needs timesheets.leaves.approve (department heads, central HR).",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{reqToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"id\": 1,\n  \"status\": \"approved\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 403\", () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "5. Restructuring (dry runs)",
+          "item": [
+            {
+              "name": "AX23 Restructuring needs rights across all MDAs",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/organization/restructure",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "organization",
+                    "restructure"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{reqToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"move_department\",\n  \"department_id\": {{deptA}},\n  \"to_company_id\": {{mdaB}},\n  \"dry_run\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 403\", () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX24 Dry run: move a department to another MDA",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/organization/restructure",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "organization",
+                    "restructure"
+                  ]
+                },
+                "description": "Reports what would move. Nothing is changed.",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"move_department\",\n  \"department_id\": {{deptA}},\n  \"to_company_id\": {{mdaB}},\n  \"dry_run\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"nothing changed\", () => pm.expect(pm.response.json().message).to.include(\"Dry run\"));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX25 Dry run: merge MDA A into MDA B",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/organization/restructure",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "organization",
+                    "restructure"
+                  ]
+                },
+                "description": "Reports what would move. Nothing is changed.",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"merge_mda\",\n  \"from_company_id\": {{mdaA}},\n  \"into_company_id\": {{mdaB}},\n  \"dry_run\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"MDA-level grants would be removed\", () => pm.expect(pm.response.json().data.mda_level_grants).to.eql(\"removed\"));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "6. Payroll runs per MDA (dry run)",
+          "item": [
+            {
+              "name": "AX26 Dry run: MDA A's payroll for this month",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/payroll/runs",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "payroll",
+                    "runs"
+                  ]
+                },
+                "description": "Shows who would be paid and who is skipped. Nothing is saved.",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"company_id\": {{mdaA}},\n  \"period\": \"{{period}}\",\n  \"dry_run\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"employees and skipped listed\", () => { const d = pm.response.json().data; pm.expect(d.dry_run).to.be.true; pm.expect(d.skipped).to.be.an(\"array\"); });"
+                    ]
+                  }
+                },
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set(\"period\", new Date().toISOString().slice(0, 7));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX27 A run needs a period",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/payroll/runs",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "payroll",
+                    "runs"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"company_id\": {{mdaA}}\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 400\", () => pm.response.to.have.status(400));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "7. Shared modules belong to an MDA",
+          "item": [
+            {
+              "name": "AX28 A training programme in MDA B",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/trainings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "trainings"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"training_title\": \"Postman MDA B programme\",\n  \"start_date\": \"2030-01-10\",\n  \"company_id\": {{mdaB}}\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is one of [200, 201]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                      "pm.collectionVariables.set(\"trainingIdB\", pm.response.json().data.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX29 The MDA A user cannot see MDA B's programme",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/trainings?id={{trainingIdB}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "trainings"
+                  ],
+                  "query": [
+                    {
+                      "key": "id",
+                      "value": "{{trainingIdB}}"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{reqToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"not visible\", () => pm.expect(pm.response.json().data).to.eql(null));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX30 Programmes listed for the MDA A user are MDA A's or central",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/trainings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "trainings"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{reqToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"no other MDA\", () => (pm.response.json().data || []).forEach(t => pm.expect([null, String(pm.collectionVariables.get(\"mdaA\"))]).to.include(t.company_id === null ? null : String(t.company_id))));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "8. Public flow and caller address",
+          "item": [
+            {
+              "name": "AX31 Asking for a new continue link gives the same answer for any email",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/admin/employees/register/resume-link",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "admin",
+                    "employees",
+                    "register",
+                    "resume-link"
+                  ]
+                },
+                "description": "The link only goes to an email already on the application.",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"nobody.{{reqUsername}}@example.com\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX32 Which address the server sees",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Forwarded-For",
+                    "value": "203.0.113.9"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/debug/client-ip",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "debug",
+                    "client-ip"
+                  ]
+                },
+                "description": "Run this against the Render URL with the made-up X-Forwarded-For header: `resolved` must be your real IP, not 203.0.113.9. On localhost there is no proxy, so it shows the header.",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "9. Cleanup",
+          "item": [
+            {
+              "name": "AX33 Delete the test programme",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/trainings?id={{trainingIdB}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "trainings"
+                  ],
+                  "query": [
+                    {
+                      "key": "id",
+                      "value": "{{trainingIdB}}"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "AX34 Delete the test user",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/users/admin?id={{reqUserId}}&reason=Postman access test cleanup",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "admin"
+                  ],
+                  "query": [
+                    {
+                      "key": "id",
+                      "value": "{{reqUserId}}"
+                    },
+                    {
+                      "key": "reason",
+                      "value": "Postman access test cleanup"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"status is 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -17072,6 +18898,46 @@
     },
     {
       "key": "runTag",
+      "value": ""
+    },
+    {
+      "key": "reqUsername",
+      "value": ""
+    },
+    {
+      "key": "reqUserId",
+      "value": ""
+    },
+    {
+      "key": "reqToken",
+      "value": ""
+    },
+    {
+      "key": "reqOtp",
+      "value": ""
+    },
+    {
+      "key": "accessRequestId",
+      "value": ""
+    },
+    {
+      "key": "inSevenDays",
+      "value": ""
+    },
+    {
+      "key": "reviewId",
+      "value": ""
+    },
+    {
+      "key": "reviewItemIds",
+      "value": ""
+    },
+    {
+      "key": "period",
+      "value": ""
+    },
+    {
+      "key": "trainingIdB",
       "value": ""
     }
   ]
