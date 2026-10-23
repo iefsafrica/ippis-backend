@@ -7642,7 +7642,7 @@
                     "add"
                   ]
                 },
-                "description": "The registration is recorded under MDA A and its department.",
+                "description": "The registration is recorded under MDA A and its department. Sends a complete employee record, as the add-employee form does.",
                 "auth": {
                   "type": "bearer",
                   "bearer": [
@@ -7655,7 +7655,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"firstname\": \"Postman\",\n  \"surname\": \"MdaA\",\n  \"email\": \"{{emailA}}\",\n  \"position\": \"Officer\",\n  \"company_id\": {{mdaA}},\n  \"department_id\": {{deptA}}\n}",
+                  "raw": "{\n  \"title\": \"Mr\",\n  \"firstname\": \"Postman\",\n  \"surname\": \"MdaA\",\n  \"email\": \"{{emailA}}\",\n  \"position\": \"Officer\",\n  \"phone_number\": \"08030000000\",\n  \"date_of_birth\": \"1990-01-01\",\n  \"sex\": \"Male\",\n  \"marital_status\": \"Single\",\n  \"state_of_origin\": \"Lagos\",\n  \"lga\": \"Ikeja\",\n  \"state_of_residence\": \"Lagos\",\n  \"address_state_of_residence\": \"1 Postman Street, Ikeja\",\n  \"next_of_kin_name\": \"Postman Kin\",\n  \"next_of_kin_relationship\": \"Sibling\",\n  \"next_of_kin_phone_number\": \"08030000001\",\n  \"next_of_kin_address\": \"1 Postman Street, Ikeja\",\n  \"employment_id_no\": \"PM-A-{{runTag}}\",\n  \"service_no\": \"SVC-A-{{runTag}}\",\n  \"file_no\": \"FILE-A-{{runTag}}\",\n  \"rank_position\": \"Administrative Officer II\",\n  \"employment_type\": \"Permanent\",\n  \"probation_period\": \"6 months\",\n  \"work_location\": \"Abuja\",\n  \"date_of_first_appointment\": \"2020-01-06\",\n  \"grade_level\": \"GL-08\",\n  \"step\": \"2\",\n  \"salary_structure\": \"CONPSS\",\n  \"cadre\": \"Administrative\",\n  \"bank_name\": \"Test Bank\",\n  \"account_number\": \"0123456789\",\n  \"pfa_name\": \"Test PFA\",\n  \"rsa_pin\": \"PEN100000000000\",\n  \"company_id\": {{mdaA}},\n  \"department_id\": {{deptA}}\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -7679,7 +7679,9 @@
                   "script": {
                     "type": "text/javascript",
                     "exec": [
-                      "pm.collectionVariables.set(\"emailA\", \"postman.mda.a.\" + Date.now() + \"@example.com\");"
+                      "const tag = String(Date.now()).slice(-8);",
+                      "pm.collectionVariables.set(\"runTag\", tag);",
+                      "pm.collectionVariables.set(\"emailA\", \"postman.mda.a.\" + tag + \"@example.com\");"
                     ]
                   }
                 }
@@ -7707,7 +7709,7 @@
                     "add"
                   ]
                 },
-                "description": "An MDA-level user cannot add an employee without an MDA.",
+                "description": "An MDA-level user cannot add an employee without an MDA. Sends a complete employee record, as the add-employee form does.",
                 "auth": {
                   "type": "bearer",
                   "bearer": [
@@ -7720,7 +7722,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"firstname\": \"Postman\",\n  \"surname\": \"NoMda\",\n  \"email\": \"postman.nomda@example.com\",\n  \"position\": \"Officer\"\n}",
+                  "raw": "{\n  \"title\": \"Mr\",\n  \"firstname\": \"Postman\",\n  \"surname\": \"NoMda\",\n  \"email\": \"postman.nomda.{{runTag}}@example.com\",\n  \"position\": \"Officer\",\n  \"phone_number\": \"08030000000\",\n  \"date_of_birth\": \"1990-01-01\",\n  \"sex\": \"Male\",\n  \"marital_status\": \"Single\",\n  \"state_of_origin\": \"Lagos\",\n  \"lga\": \"Ikeja\",\n  \"state_of_residence\": \"Lagos\",\n  \"address_state_of_residence\": \"1 Postman Street, Ikeja\",\n  \"next_of_kin_name\": \"Postman Kin\",\n  \"next_of_kin_relationship\": \"Sibling\",\n  \"next_of_kin_phone_number\": \"08030000001\",\n  \"next_of_kin_address\": \"1 Postman Street, Ikeja\",\n  \"employment_id_no\": \"PM-N-{{runTag}}\",\n  \"service_no\": \"SVC-N-{{runTag}}\",\n  \"file_no\": \"FILE-N-{{runTag}}\",\n  \"rank_position\": \"Administrative Officer II\",\n  \"employment_type\": \"Permanent\",\n  \"probation_period\": \"6 months\",\n  \"work_location\": \"Abuja\",\n  \"date_of_first_appointment\": \"2020-01-06\",\n  \"grade_level\": \"GL-08\",\n  \"step\": \"2\",\n  \"salary_structure\": \"CONPSS\",\n  \"cadre\": \"Administrative\",\n  \"bank_name\": \"Test Bank\",\n  \"account_number\": \"0123456789\",\n  \"pfa_name\": \"Test PFA\",\n  \"rsa_pin\": \"PEN100000000000\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -7762,7 +7764,7 @@
                     "add"
                   ]
                 },
-                "description": "Adding to an MDA outside the user's scope is refused.",
+                "description": "Adding to an MDA outside the user's scope is refused. Sends a complete employee record, as the add-employee form does.",
                 "auth": {
                   "type": "bearer",
                   "bearer": [
@@ -7775,7 +7777,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"firstname\": \"Postman\",\n  \"surname\": \"Wrong\",\n  \"email\": \"postman.wrong@example.com\",\n  \"position\": \"Officer\",\n  \"company_id\": {{mdaB}},\n  \"department_id\": {{deptB}}\n}",
+                  "raw": "{\n  \"title\": \"Mr\",\n  \"firstname\": \"Postman\",\n  \"surname\": \"Wrong\",\n  \"email\": \"postman.wrong.{{runTag}}@example.com\",\n  \"position\": \"Officer\",\n  \"phone_number\": \"08030000000\",\n  \"date_of_birth\": \"1990-01-01\",\n  \"sex\": \"Male\",\n  \"marital_status\": \"Single\",\n  \"state_of_origin\": \"Lagos\",\n  \"lga\": \"Ikeja\",\n  \"state_of_residence\": \"Lagos\",\n  \"address_state_of_residence\": \"1 Postman Street, Ikeja\",\n  \"next_of_kin_name\": \"Postman Kin\",\n  \"next_of_kin_relationship\": \"Sibling\",\n  \"next_of_kin_phone_number\": \"08030000001\",\n  \"next_of_kin_address\": \"1 Postman Street, Ikeja\",\n  \"employment_id_no\": \"PM-W-{{runTag}}\",\n  \"service_no\": \"SVC-W-{{runTag}}\",\n  \"file_no\": \"FILE-W-{{runTag}}\",\n  \"rank_position\": \"Administrative Officer II\",\n  \"employment_type\": \"Permanent\",\n  \"probation_period\": \"6 months\",\n  \"work_location\": \"Abuja\",\n  \"date_of_first_appointment\": \"2020-01-06\",\n  \"grade_level\": \"GL-08\",\n  \"step\": \"2\",\n  \"salary_structure\": \"CONPSS\",\n  \"cadre\": \"Administrative\",\n  \"bank_name\": \"Test Bank\",\n  \"account_number\": \"0123456789\",\n  \"pfa_name\": \"Test PFA\",\n  \"rsa_pin\": \"PEN100000000000\",\n  \"company_id\": {{mdaB}},\n  \"department_id\": {{deptB}}\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -7817,7 +7819,7 @@
                     "add"
                   ]
                 },
-                "description": "",
+                "description": "Sends a complete employee record, as the add-employee form does.",
                 "auth": {
                   "type": "bearer",
                   "bearer": [
@@ -7830,7 +7832,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"firstname\": \"Postman\",\n  \"surname\": \"MdaB\",\n  \"email\": \"{{emailB}}\",\n  \"position\": \"Officer\",\n  \"company_id\": {{mdaB}},\n  \"department_id\": {{deptB}}\n}",
+                  "raw": "{\n  \"title\": \"Mr\",\n  \"firstname\": \"Postman\",\n  \"surname\": \"MdaB\",\n  \"email\": \"{{emailB}}\",\n  \"position\": \"Officer\",\n  \"phone_number\": \"08030000000\",\n  \"date_of_birth\": \"1990-01-01\",\n  \"sex\": \"Male\",\n  \"marital_status\": \"Single\",\n  \"state_of_origin\": \"Lagos\",\n  \"lga\": \"Ikeja\",\n  \"state_of_residence\": \"Lagos\",\n  \"address_state_of_residence\": \"1 Postman Street, Ikeja\",\n  \"next_of_kin_name\": \"Postman Kin\",\n  \"next_of_kin_relationship\": \"Sibling\",\n  \"next_of_kin_phone_number\": \"08030000001\",\n  \"next_of_kin_address\": \"1 Postman Street, Ikeja\",\n  \"employment_id_no\": \"PM-B-{{runTag}}\",\n  \"service_no\": \"SVC-B-{{runTag}}\",\n  \"file_no\": \"FILE-B-{{runTag}}\",\n  \"rank_position\": \"Administrative Officer II\",\n  \"employment_type\": \"Permanent\",\n  \"probation_period\": \"6 months\",\n  \"work_location\": \"Abuja\",\n  \"date_of_first_appointment\": \"2020-01-06\",\n  \"grade_level\": \"GL-08\",\n  \"step\": \"2\",\n  \"salary_structure\": \"CONPSS\",\n  \"cadre\": \"Administrative\",\n  \"bank_name\": \"Test Bank\",\n  \"account_number\": \"0123456789\",\n  \"pfa_name\": \"Test PFA\",\n  \"rsa_pin\": \"PEN100000000000\",\n  \"company_id\": {{mdaB}},\n  \"department_id\": {{deptB}}\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -7854,7 +7856,7 @@
                   "script": {
                     "type": "text/javascript",
                     "exec": [
-                      "pm.collectionVariables.set(\"emailB\", \"postman.mda.b.\" + Date.now() + \"@example.com\");"
+                      "pm.collectionVariables.set(\"emailB\", \"postman.mda.b.\" + pm.collectionVariables.get(\"runTag\") + \"@example.com\");"
                     ]
                   }
                 }
@@ -17042,6 +17044,10 @@
     },
     {
       "key": "announcementId",
+      "value": ""
+    },
+    {
+      "key": "runTag",
       "value": ""
     }
   ]

@@ -149,6 +149,27 @@ export async function POST(req: NextRequest) {
     // --- Metadata ---
     const metadata = body.metadata || body.meta_data || null;
 
+    // Every field the database requires, checked before anything is written.
+    // Employment details are saved when any are given or an MDA is chosen (the
+    // MDA link is kept with them), and then all of them are required.
+    const writeEmployment = Boolean(grade_level || step || employment_id_no || organization || bank_name || pfa_name);
+    const required: Record<string, unknown> = {
+      title, phone_number: telephoneno, date_of_birth: birthdate, sex: gender, marital_status: maritalstatus,
+      state_of_origin, lga: residence_lga, state_of_residence: residence_state, address_state_of_residence: residence_address,
+      next_of_kin_name, next_of_kin_relationship, next_of_kin_phone_number, next_of_kin_address,
+      ...(writeEmployment
+        ? {
+            employment_id_no, service_no, file_no, rank_position, department, organization, employment_type,
+            probation_period, work_location, date_of_first_appointment, grade_level, step, salary_structure,
+            cadre, bank_name, account_number, pfa_name, rsa_pin,
+          }
+        : {}),
+    };
+    const missing = Object.keys(required).filter((k) => required[k] === null || required[k] === undefined || required[k] === "");
+    if (missing.length > 0) {
+      return withCors(req, { success: false, error: `Missing required fields: ${missing.join(", ")}`, missing }, 400);
+    }
+
     // Ensure pending_employees table exists (basic check)
     if (!(await tableExists("pending_employees"))) {
       return withCors(req, { success: false, error: "The 'pending_employees' table does not exist." }, 404);
@@ -187,53 +208,43 @@ export async function POST(req: NextRequest) {
     // Generate registration ID
     const registrationId = await generateRegistrationId();
 
-    // 1. Insert into registrations
-    const registrationInserted = await sql`
-      INSERT INTO registrations (
-        registration_id,
-        status,
-        current_step,
-        submitted_at,
-        updated_at
-      )
-      VALUES (${registrationId}, 'pending_approval', 'submitted', NOW(), NOW())
-      RETURNING id, registration_id
-    `;
-    const regRecordId = registrationInserted[0]!.id;
-
-    // 2. Insert into VerificationData
-    await sql`
-      INSERT INTO "VerificationData" (
-        id, registration_id, nin, firstname, surname, middlename, email, gender, 
-        telephoneno, birthdate, state_of_origin, residence_address, residence_state, 
-        residence_lga, profession, maritalstatus
-      )
-      VALUES (
-        ${uuidv4()}, ${regRecordId}, ${nin}, ${firstname}, ${surname}, ${middlename}, ${email}, ${gender},
-        ${telephoneno}, ${birthdate}, ${state_of_origin}, ${residence_address}, ${residence_state},
-        ${residence_lga}, ${profession}, ${maritalstatus}
-      )
-    `;
-
-    // 3. Insert into personal_info
-    await sql`
-      INSERT INTO personal_info (
-        registration_id, title, surname, first_name, other_names, phone_number, email,
-        date_of_birth, sex, marital_status, state_of_origin, lga, state_of_residence,
-        address_state_of_residence, next_of_kin_name, next_of_kin_relationship,
-        next_of_kin_phone_number, next_of_kin_address
-      )
-      VALUES (
-        ${registrationId}, ${title}, ${surname}, ${firstname}, ${middlename}, ${telephoneno}, ${email},
-        ${birthdate}, ${gender}, ${maritalstatus}, ${state_of_origin}, ${residence_lga}, ${residence_state},
-        ${residence_address}, ${next_of_kin_name}, ${next_of_kin_relationship},
-        ${next_of_kin_phone_number}, ${next_of_kin_address}
-      )
-    `;
-
-    // 4. Insert into employment_info
-    if (grade_level || step || employment_id_no || organization || bank_name || pfa_name) {
-      await sql`
+    // All records are written in one transaction with the audit entry, so a
+    // failure part-way leaves nothing behind
+    const statements = [
+      sql`
+        INSERT INTO registrations (registration_id, status, current_step, submitted_at, updated_at)
+        VALUES (${registrationId}, 'pending_approval', 'submitted', NOW(), NOW())
+      `,
+      sql`
+        INSERT INTO "VerificationData" (
+          id, registration_id, nin, firstname, surname, middlename, email, gender,
+          telephoneno, birthdate, state_of_origin, residence_address, residence_state,
+          residence_lga, profession, maritalstatus
+        )
+        VALUES (
+          ${uuidv4()}, (SELECT id FROM registrations WHERE registration_id = ${registrationId})::text,
+          ${nin}, ${firstname}, ${surname}, ${middlename}, ${email}, ${gender},
+          ${telephoneno}, ${birthdate}, ${state_of_origin}, ${residence_address}, ${residence_state},
+          ${residence_lga}, ${profession}, ${maritalstatus}
+        )
+      `,
+      sql`
+        INSERT INTO personal_info (
+          registration_id, title, surname, first_name, other_names, phone_number, email,
+          date_of_birth, sex, marital_status, state_of_origin, lga, state_of_residence,
+          address_state_of_residence, next_of_kin_name, next_of_kin_relationship,
+          next_of_kin_phone_number, next_of_kin_address
+        )
+        VALUES (
+          ${registrationId}, ${title}, ${surname}, ${firstname}, ${middlename}, ${telephoneno}, ${email},
+          ${birthdate}, ${gender}, ${maritalstatus}, ${state_of_origin}, ${residence_lga}, ${residence_state},
+          ${residence_address}, ${next_of_kin_name}, ${next_of_kin_relationship},
+          ${next_of_kin_phone_number}, ${next_of_kin_address}
+        )
+      `,
+    ];
+    if (writeEmployment) {
+      statements.push(sql`
         INSERT INTO employment_info (
           registration_id, employment_id_no, service_no, file_no, rank_position, department,
           organization, employment_type, probation_period, work_location, date_of_first_appointment,
@@ -246,18 +257,23 @@ export async function POST(req: NextRequest) {
           ${grade_level}, ${step}, ${salary_structure}, ${cadre}, ${bank_name}, ${account_number}, ${pfa_name}, ${rsa_pin},
           ${mdaId}, ${departmentId}
         )
-      `;
+      `);
     }
-
-    // 5. Insert into pending_employees
-    const inserted = await sql`
+    statements.push(sql`
       INSERT INTO pending_employees
         (registration_id, firstname, surname, email, department, position, source, metadata, submission_date, created_at, updated_at)
       VALUES
         (${registrationId}, ${firstname}, ${surname}, ${email}, ${department || null}, ${position || null}, 'form', ${metadata ? JSON.stringify(metadata) : null}, NOW(), NOW(), NOW())
       RETURNING *
-    `;
-    const employee = inserted[0];
+    `);
+
+    const results = await runAudited(req, auth.ctx, {
+      action: "employees.record.created",
+      targetType: "employee",
+      targetId: registrationId,
+      details: { company_id: mdaId, department_id: departmentId },
+    }, statements);
+    const employee = (results[statements.length - 1] as any[])[0];
 
     // 5. Send Email (HTML notification with Registration ID and Onboarding link)
     const baseUrl = process.env.NEXT_PUBLIC_FRONTEND_URL || process.env.APP_URL || "https://ippis-frontend.vercel.app";
@@ -274,19 +290,25 @@ export async function POST(req: NextRequest) {
       console.error("Failed to send employee registration email:", emailError);
     });
 
-    await runAudited(req, auth.ctx, {
-      action: "employees.record.created",
-      targetType: "employee",
-      targetId: registrationId,
-      details: {},
-    }, []);
-
     return withCors(req, {
       success: true,
       message: "Employee added successfully across all records.",
       data: employee,
     });
-  } catch (error) {
+  } catch (error: any) {
+    // The database refused a value: report it instead of a server error
+    if (error?.code === "23502") {
+      return withCors(req, { success: false, error: `Missing required field: ${error.column ?? "unknown"}` }, 400);
+    }
+    if (error?.code === "23505") {
+      return withCors(req, { success: false, error: "This employee is already registered (same email, NIN or registration number)." }, 409);
+    }
+    if (error?.code === "22001") {
+      return withCors(req, { success: false, error: "A value is longer than its field allows (for example title, phone number, grade level or account number)." }, 400);
+    }
+    if (error?.code === "22007" || error?.code === "22008") {
+      return withCors(req, { success: false, error: "A date is not valid; use YYYY-MM-DD." }, 400);
+    }
     console.error("❌ Error adding new employee:", error);
     return withCors(
       req,
