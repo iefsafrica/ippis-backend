@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { neon } from "@neondatabase/serverless";
 import { NextRequest } from "next/server";
 import { withCors } from "@/lib/cors";
+import { clientIp } from "@/lib/rate-limit";
 import { readToken } from "@/lib/rbac";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -171,7 +172,7 @@ export function employeeAuditStatement(
   action: string,
   details: Record<string, unknown> = {}
 ) {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
+  const ip = clientIp(req) === "unknown" ? null : clientIp(req);
   return sql`
     INSERT INTO audit_logs (actor_id, actor_username, action, target_type, target_id, details, ip_address)
     VALUES (

@@ -2,6 +2,8 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, OUT_OF_SCOPE } from "@/lib/module-scope";
+import { employeeInScope } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -73,16 +75,19 @@ export async function POST(req: NextRequest) {
       return withCors(req, { success: false, error: "Missing required fields" }, 400);
     }
 
-    // Check project exists
-    const project = await sql`SELECT id FROM projects WHERE id = ${body.project_id}`;
-    if (!project.length) {
-      return withCors(req, { success: false, error: "Project not found" }, 404);
+    // A task belongs to its project: the project must be inside the caller's scope
+    const project = await sql`SELECT id, company_id, department_id FROM projects WHERE id = ${body.project_id}`;
+    if (!canChange(auth.ctx, "projects.records.manage", project[0])) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     // Check employee exists
     const employee = await sql`SELECT id FROM employees WHERE id = ${body.assigned_to}`;
     if (!employee.length) {
       return withCors(req, { success: false, error: "Assigned employee not found" }, 404);
+    }
+    if (project[0]!.company_id != null && !(await employeeInScope(auth.ctx, "projects.records.manage", body.assigned_to))) {
+      return withCors(req, { success: false, error: "The task can only be assigned to an employee inside your organisational scope" }, 400);
     }
 
     // Auto-generate task_code like TSK-001
@@ -144,6 +149,8 @@ export async function GET(req: NextRequest) {
     const offset = (page - 1) * limit;
 
     const idFilter = searchParams.get("id");
+    // Only the tasks of projects in the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "projects.records.view");
 
     let rows;
     if (idFilter) {
@@ -153,19 +160,22 @@ export async function GET(req: NextRequest) {
         JOIN projects p ON t.project_id = p.id
         JOIN employees e ON t.assigned_to = e.id
         WHERE t.id = ${idFilter}
+          AND (${sc.all}::boolean OR p.company_id = ANY(${sc.companyIds}::int[]) OR p.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND p.company_id IS NULL))
       `;
+      if (!rows.length) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     } else {
       rows = await sql`
         SELECT t.*, p.name AS project_name, e.name AS assigned_name
         FROM tasks t
         JOIN projects p ON t.project_id = p.id
         JOIN employees e ON t.assigned_to = e.id
+        WHERE (${sc.all}::boolean OR p.company_id = ANY(${sc.companyIds}::int[]) OR p.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND p.company_id IS NULL))
         ORDER BY t.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
     }
 
-    const countResult = await sql`SELECT COUNT(*) AS total FROM tasks`;
+    const countResult = await sql`SELECT COUNT(*) AS total FROM tasks t JOIN projects p ON p.id = t.project_id WHERE (${sc.all}::boolean OR p.company_id = ANY(${sc.companyIds}::int[]) OR p.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND p.company_id IS NULL))`;
     const total = Number(countResult?.[0]?.total ?? 0);
 
     return withCors(req, {
@@ -193,9 +203,12 @@ export async function PUT(req: NextRequest) {
     const body = (await req.json()) as TaskPayload;
     if (!body.id) return withCors(req, { success: false, error: "ID is required" }, 400);
 
+    // The task's project, and any project it moves to, must be inside the caller's scope
+    const [current] = await sql`SELECT p.company_id, p.department_id FROM tasks t JOIN projects p ON p.id = t.project_id WHERE t.id = ${body.id}`;
+    if (!canChange(auth.ctx, "projects.records.manage", current)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     if (body.project_id) {
-      const project = await sql`SELECT id FROM projects WHERE id = ${body.project_id}`;
-      if (!project.length) return withCors(req, { success: false, error: "Project not found" }, 404);
+      const project = await sql`SELECT id, company_id, department_id FROM projects WHERE id = ${body.project_id}`;
+      if (!canChange(auth.ctx, "projects.records.manage", project[0])) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     if (body.assigned_to) {
@@ -237,6 +250,8 @@ export async function DELETE(req: NextRequest) {
     const id = searchParams.get("id");
     if (!id) return withCors(req, { success: false, error: "ID required" }, 400);
 
+    const [current] = await sql`SELECT p.company_id, p.department_id FROM tasks t JOIN projects p ON p.id = t.project_id WHERE t.id = ${id}`;
+    if (!canChange(auth.ctx, "projects.records.manage", current)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     const result = await sql`DELETE FROM tasks WHERE id = ${id} RETURNING *`;
     if (!result.length) return withCors(req, { success: false, error: "Not found" }, 404);
 

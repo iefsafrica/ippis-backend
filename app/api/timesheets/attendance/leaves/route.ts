@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
-import { requirePermission, runAudited } from "@/lib/rbac";
+import { requirePermission, runAudited, can } from "@/lib/rbac";
+import { decisionOf, decisionRefusal, recordLeaveDecision, LEAVE_APPROVE, LEAVE_MANAGE } from "@/lib/approvals";
 import { notify } from "@/lib/employee-notifications";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -34,6 +36,13 @@ interface UpdateLeaveBody {
   status?: "pending" | "approved" | "rejected";
 }
 
+// Whether the leave exists and its employee is inside the caller's scope
+async function leaveInScope(ctx: Parameters<typeof employeeInScope>[0], id: number) {
+  if (!Number.isInteger(id)) return false;
+  const [row] = await sql`SELECT employee_code FROM leaves WHERE id = ${id}`;
+  return !!row && (await employeeInScope(ctx, "timesheets.leaves.manage", row.employee_code));
+}
+
 /* -------------------------
 OPTIONS (CORS)
 ------------------------- */
@@ -54,20 +63,24 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    // Only the leave of employees inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "timesheets.leaves.view");
 
     if (id) {
 
       const result = await sql`
-        SELECT *,
-        (to_date - from_date) + 1 AS days
-        FROM leaves
-        WHERE id = ${Number(id)}
+        SELECT l.*,
+        (l.to_date - l.from_date) + 1 AS days
+        FROM leaves l
+        LEFT JOIN employees e ON e.id = l.employee_code
+        WHERE l.id = ${Number(id)}
+          AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       `;
 
       if (!result.length) {
         return withCors(req,{
           success:false,
-          message:"Leave not found"
+          message:OUT_OF_SCOPE
         },404);
       }
 
@@ -78,10 +91,12 @@ export async function GET(req: NextRequest) {
     }
 
     const result = await sql`
-      SELECT *,
-      (to_date - from_date) + 1 AS days
-      FROM leaves
-      ORDER BY created_at DESC
+      SELECT l.*,
+      (l.to_date - l.from_date) + 1 AS days
+      FROM leaves l
+      LEFT JOIN employees e ON e.id = l.employee_code
+      WHERE (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
+      ORDER BY l.created_at DESC
     `;
 
     return withCors(req,{
@@ -166,6 +181,10 @@ export async function POST(req: NextRequest) {
 
     }
 
+    if (!(await employeeInScope(auth.ctx, "timesheets.leaves.manage", employee.id))) {
+      return withCors(req,{ success:false, message:OUT_OF_SCOPE },404);
+    }
+
     /* -------------------------
        Insert Leave
     ------------------------- */
@@ -221,11 +240,10 @@ PUT Update Leave
 export async function PUT(req: NextRequest) {
 
   try {
-    const auth = await requirePermission(req, "timesheets.leaves.manage");
-    if (!auth.ok) return auth.response;
-
-
-    const body = (await req.json()) as UpdateLeaveBody;
+    const body = (await req.json().catch(() => null)) as UpdateLeaveBody | null;
+    if (!body) {
+      return withCors(req,{ success:false, message:"Send the update as JSON" },400);
+    }
 
     const {
       id,
@@ -236,6 +254,13 @@ export async function PUT(req: NextRequest) {
       status
     } = body;
 
+    // Approving or rejecting needs the approve permission; changing the
+    // request itself needs manage
+    const decision = decisionOf(status);
+    const editing = [leave_type, from_date, to_date, reason].some((v) => v !== undefined) || (status !== undefined && !decision);
+    const auth = await requirePermission(req, decision ? LEAVE_APPROVE : LEAVE_MANAGE);
+    if (!auth.ok) return auth.response;
+
     if (!id) {
 
       return withCors(req,{
@@ -245,6 +270,18 @@ export async function PUT(req: NextRequest) {
 
     }
 
+    const [owner] = await sql`SELECT employee_code FROM leaves WHERE id = ${Number(id)}`;
+    if (!owner) {
+      return withCors(req,{ success:false, message:OUT_OF_SCOPE },404);
+    }
+    if (editing && !(can(auth.ctx, LEAVE_MANAGE) && (await employeeInScope(auth.ctx, LEAVE_MANAGE, owner.employee_code)))) {
+      return withCors(req,{ success:false, message: decision ? "Changing the request's details needs timesheets.leaves.manage" : OUT_OF_SCOPE }, decision ? 403 : 404);
+    }
+    if (decision) {
+      const refusal = await decisionRefusal(auth.ctx, LEAVE_APPROVE, owner.employee_code);
+      if (refusal) return withCors(req,{ success:false, message:refusal.error }, refusal.status);
+    }
+
     const result = await sql`
       UPDATE leaves
       SET
@@ -252,7 +289,7 @@ export async function PUT(req: NextRequest) {
         from_date = COALESCE(${from_date}, from_date),
         to_date = COALESCE(${to_date}, to_date),
         reason = COALESCE(${reason}, reason),
-        status = COALESCE(${status}, status),
+        status = COALESCE(${decision ?? status}, status),
         updated_at = NOW()
       WHERE id = ${id}
       RETURNING *
@@ -267,10 +304,16 @@ export async function PUT(req: NextRequest) {
 
     }
 
-    await runAudited(req, auth.ctx, { action: "timesheets.leave.updated", targetType: "timesheets.leave", details: {} }, []);
+    await runAudited(req, auth.ctx, {
+      action: decision ? `timesheets.leave.${decision}` : "timesheets.leave.updated",
+      targetType: "employee",
+      targetId: String(owner.employee_code),
+      details: { leave_id: Number(id), status: decision ?? status ?? null },
+    }, []);
+    if (decision) await recordLeaveDecision("leaves", id, auth.ctx.user.username);
 
     // Tell the employee when their request is decided
-    const decided = typeof status === "string" ? status.toLowerCase() : null;
+    const decided = decision;
     if (decided === "approved" || decided === "rejected") {
       const leave = result[0] as any;
       await notify(String(leave.employee_code), "leave", {
@@ -319,6 +362,10 @@ export async function DELETE(req: NextRequest) {
         message:"Leave ID required"
       },400);
 
+    }
+
+    if (!(await leaveInScope(auth.ctx, Number(id)))) {
+      return withCors(req,{ success:false, message:OUT_OF_SCOPE },404);
     }
 
     const result = await sql`

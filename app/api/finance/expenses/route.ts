@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, canSee, parentOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -66,16 +67,18 @@ export async function POST(req: NextRequest) {
     const account = await db`
       SELECT account_id FROM finance_accounts WHERE account_id = ${account_id}
     `;
-    if (!account?.[0]) {
-      return withCors(req, { success: false, error: "Account not found" }, 404);
+    // An expense belongs to its account's MDA: the account must be inside the caller's scope
+    if (!canChange(auth.ctx, "finance.records.manage", await parentOf("account", account_id))) {
+      return withCors(req, { success: false, error: "Account not found or outside your organisational scope" }, 404);
     }
 
     // validate payee
     const payee = await db`
       SELECT payee_id FROM finance_payees WHERE payee_id = ${payee_id}
     `;
-    if (!payee?.[0]) {
-      return withCors(req, { success: false, error: "Payee not found" }, 404);
+    const [payeeRow] = await db`SELECT company_id, department_id FROM finance_payees WHERE payee_id = ${payee_id}`;
+    if (!payee?.[0] || !canSee(auth.ctx, "finance.records.manage", payeeRow)) {
+      return withCors(req, { success: false, error: "Payee not found or outside your organisational scope" }, 404);
     }
 
     const expenseId = `EXP-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
@@ -132,6 +135,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
 
     const expenseId = searchParams.get("expense_id");
+    // Only the expenses of accounts in the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "finance.records.view");
 
     // SINGLE
     if (expenseId) {
@@ -144,10 +149,11 @@ export async function GET(req: NextRequest) {
         LEFT JOIN finance_accounts a ON e.account_id = a.account_id
         LEFT JOIN finance_payees p ON e.payee_id = p.payee_id
         WHERE e.expense_id = ${expenseId}
+          AND (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
       `;
 
       if (!single?.[0]) {
-        return withCors(req, { success: false, error: "Expense not found" }, 404);
+        return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
       }
 
       return withCors(req, { success: true, data: single[0] });
@@ -166,11 +172,12 @@ export async function GET(req: NextRequest) {
       FROM finance_expenses e
       LEFT JOIN finance_accounts a ON e.account_id = a.account_id
       LEFT JOIN finance_payees p ON e.payee_id = p.payee_id
+      WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
       ORDER BY e.date DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const count = await db`SELECT COUNT(*) FROM finance_expenses`;
+    const count = await db`SELECT COUNT(*) FROM finance_expenses e LEFT JOIN finance_accounts a ON e.account_id = a.account_id WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))`;
 
     return withCors(req, {
       success: true,
@@ -217,8 +224,11 @@ export async function PATCH(req: NextRequest) {
 
     const e = existing?.[0];
 
-    if (!e) {
-      return withCors(req, { success: false, error: "Expense not found" }, 404);
+    if (!e || !canChange(auth.ctx, "finance.records.manage", await parentOf("account", e.account_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
+    if (body.account_id && body.account_id !== e.account_id && !canChange(auth.ctx, "finance.records.manage", await parentOf("account", body.account_id))) {
+      return withCors(req, { success: false, error: "Account not found or outside your organisational scope" }, 404);
     }
 
     const oldAmount = Number(e.amount);
@@ -291,8 +301,8 @@ export async function DELETE(req: NextRequest) {
 
     const e = existing?.[0];
 
-    if (!e) {
-      return withCors(req, { success: false, error: "Expense not found" }, 404);
+    if (!e || !canChange(auth.ctx, "finance.records.manage", await parentOf("account", e.account_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     // reverse balance

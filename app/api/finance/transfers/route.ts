@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, canSee, parentOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -75,6 +76,10 @@ export async function POST(req: NextRequest) {
     if (accounts.length < 2) {
        return withCors(req, { success: false, error: "One or both accounts not found" }, 404);
     }
+    // Moving money needs authority over both accounts
+    if (!canChange(auth.ctx, "finance.records.manage", await parentOf("account", from_account_id)) || !canChange(auth.ctx, "finance.records.manage", await parentOf("account", to_account_id))) {
+      return withCors(req, { success: false, error: "Both accounts must be inside your organisational scope" }, 403);
+    }
 
     const transferId = `TRF-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
     const totalDeduction = Number(amount) + Number(fees ?? 0);
@@ -137,6 +142,9 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const transferId = searchParams.get("transfer_id");
 
+    // Transfers touching an account in the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "finance.records.view");
+
     // SINGLE
     if (transferId) {
       const single = await db`
@@ -148,9 +156,10 @@ export async function GET(req: NextRequest) {
         JOIN finance_accounts f ON t.from_account_id = f.account_id
         JOIN finance_accounts to_acc ON t.to_account_id = to_acc.account_id
         WHERE t.transfer_id = ${transferId}
+          AND (${sc.all}::boolean OR f.company_id = ANY(${sc.companyIds}::int[]) OR f.department_id = ANY(${sc.departmentIds}::int[]) OR to_acc.company_id = ANY(${sc.companyIds}::int[]) OR to_acc.department_id = ANY(${sc.departmentIds}::int[]))
       `;
       if (!single?.[0]) {
-        return withCors(req, { success: false, error: "Transfer not found" }, 404);
+        return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
       }
       return withCors(req, { success: true, data: single?.[0] ?? null });
     }
@@ -168,11 +177,17 @@ export async function GET(req: NextRequest) {
       FROM finance_transfers t
       JOIN finance_accounts f ON t.from_account_id = f.account_id
       JOIN finance_accounts to_acc ON t.to_account_id = to_acc.account_id
+      WHERE (${sc.all}::boolean OR f.company_id = ANY(${sc.companyIds}::int[]) OR f.department_id = ANY(${sc.departmentIds}::int[]) OR to_acc.company_id = ANY(${sc.companyIds}::int[]) OR to_acc.department_id = ANY(${sc.departmentIds}::int[]))
       ORDER BY t.date DESC, t.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const totals = await db`SELECT COUNT(*) FROM finance_transfers`;
+    const totals = await db`
+      SELECT COUNT(*) FROM finance_transfers t
+      JOIN finance_accounts f ON t.from_account_id = f.account_id
+      JOIN finance_accounts to_acc ON t.to_account_id = to_acc.account_id
+      WHERE (${sc.all}::boolean OR f.company_id = ANY(${sc.companyIds}::int[]) OR f.department_id = ANY(${sc.departmentIds}::int[]) OR to_acc.company_id = ANY(${sc.companyIds}::int[]) OR to_acc.department_id = ANY(${sc.departmentIds}::int[]))
+    `;
 
     return withCors(req, {
       success: true,
@@ -213,6 +228,14 @@ export async function PATCH(req: NextRequest) {
     }
 
     const t = existing[0];
+    if (!canChange(auth.ctx, "finance.records.manage", await parentOf("account", t.from_account_id)) || !canChange(auth.ctx, "finance.records.manage", await parentOf("account", t.to_account_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
+    for (const moved of [body.from_account_id, body.to_account_id]) {
+      if (moved && !canChange(auth.ctx, "finance.records.manage", await parentOf("account", moved))) {
+        return withCors(req, { success: false, error: "Both accounts must be inside your organisational scope" }, 403);
+      }
+    }
 
     // ✅ Balance Reversal Logic
     const oldAmount = Number(t.amount);
@@ -293,6 +316,9 @@ export async function DELETE(req: NextRequest) {
     }
 
     const t = existing[0];
+    if (!canChange(auth.ctx, "finance.records.manage", await parentOf("account", t.from_account_id)) || !canChange(auth.ctx, "finance.records.manage", await parentOf("account", t.to_account_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
     const total = Number(t.amount) + Number(t.fees ?? 0);
 
     // ✅ Reverse Balances

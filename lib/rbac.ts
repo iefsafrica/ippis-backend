@@ -2,6 +2,7 @@ import { neon, type NeonQueryPromise } from "@neondatabase/serverless";
 import { NextRequest, NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { withCors } from "@/lib/cors";
+import { clientIp } from "@/lib/rate-limit";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -358,7 +359,7 @@ export function sodKeys(grants: Grant[]): string[] {
  */
 
 export function auditStatement(req: NextRequest, ctx: AuthContext, entry: AuditEntry): Statement {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
+  const ip = clientIp(req) === "unknown" ? null : clientIp(req);
 
   return sql`
     INSERT INTO audit_logs (actor_id, actor_username, action, target_type, target_id, reason, details, ip_address)

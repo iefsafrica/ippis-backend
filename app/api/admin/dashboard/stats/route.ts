@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { authenticate } from "@/lib/rbac";
+import { recordScope } from "@/lib/mda-scope";
 
 // Row types
 type EmployeesStatsRow = {
@@ -21,9 +22,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    // Any signed-in admin; figures are not yet limited to the caller's MDA
+    // Any signed-in admin; each figure counts only records inside the scope of
+    // the permission that shows them (DSH-02), so it is 0 without that permission
     const auth = await authenticate(req);
     if (!auth.ok) return auth.response;
+    const scE = recordScope(auth.ctx, "employees.records.view");
+    const scR = recordScope(auth.ctx, "employees.registrations.view");
+    const scD = recordScope(auth.ctx, "employees.documents.view");
 
     const sql = neon(process.env.DATABASE_URL || "");
 
@@ -47,26 +52,24 @@ export async function GET(req: NextRequest) {
       rejectedDocuments: 0,
     };
 
-    // Safe query helper
-    async function queryFirstRow<T>(query: string): Promise<T | undefined> {
+    // First row of a query, or undefined when it fails (e.g. a missing table)
+    async function firstRow<T>(query: Promise<any>): Promise<T | undefined> {
       try {
-        const raw = (await sql.query(query)) as unknown;
-        if (Array.isArray(raw) && raw.length > 0) {
-          return raw[0] as T;
-        }
-        return undefined;
+        const rows = (await query) as unknown;
+        return Array.isArray(rows) && rows.length > 0 ? (rows[0] as T) : undefined;
       } catch (err) {
-        console.error("Query failed:", err);
+        console.error("Dashboard stats query failed:", err);
         return undefined;
       }
     }
 
     // Employees stats
-    const employeesRow = await queryFirstRow<EmployeesStatsRow>(`
+    const employeesRow = await firstRow<EmployeesStatsRow>(sql`
       SELECT 
         COUNT(*) AS total_employees,
-        COUNT(CASE WHEN status = 'active' THEN 1 END) AS active_employees
-      FROM employees;
+        COUNT(CASE WHEN e.status = 'active' THEN 1 END) AS active_employees
+      FROM employees e
+      WHERE (${scE.all}::boolean OR e.company_id = ANY(${scE.companyIds}::int[]) OR e.department_id = ANY(${scE.departmentIds}::int[]))
     `);
     if (employeesRow) {
       stats.totalEmployees = Number(employeesRow.total_employees);
@@ -74,10 +77,11 @@ export async function GET(req: NextRequest) {
     }
 
     // Pending employees
-    const pendingRow = await queryFirstRow<PendingEmployeesStatsRow>(`
+    const pendingRow = await firstRow<PendingEmployeesStatsRow>(sql`
       SELECT COUNT(*) AS pending_employees
-      FROM pending_employees
-      ;
+      FROM pending_employees p
+      LEFT JOIN employment_info ei ON ei.registration_id = p.registration_id
+      WHERE (${scR.all}::boolean OR ei.company_id = ANY(${scR.companyIds}::int[]) OR ei.department_id = ANY(${scR.departmentIds}::int[]))
     `);
     if (pendingRow) {
       stats.pendingEmployees = Number(pendingRow.pending_employees);
@@ -85,12 +89,15 @@ export async function GET(req: NextRequest) {
 
     // Document stats from document_uploads
     if (documentUploadsExists) {
-      const docRow = await queryFirstRow<DocumentsStatsRow>(`
+      const docRow = await firstRow<DocumentsStatsRow>(sql`
         SELECT
-          COUNT(CASE WHEN status = 'pending' THEN 1 END) AS pending_documents,
-          COUNT(CASE WHEN status = 'approved' THEN 1 END) AS verified_documents,
-          COUNT(CASE WHEN status = 'rejected' THEN 1 END) AS rejected_documents
-        FROM document_uploads;
+          COUNT(CASE WHEN du.status = 'pending' THEN 1 END) AS pending_documents,
+          COUNT(CASE WHEN du.status = 'approved' THEN 1 END) AS verified_documents,
+          COUNT(CASE WHEN du.status = 'rejected' THEN 1 END) AS rejected_documents
+        FROM document_uploads du
+        LEFT JOIN employees emp ON emp.registration_id = du.registration_id
+        LEFT JOIN employment_info ei ON ei.registration_id = du.registration_id
+        WHERE (${scD.all}::boolean OR COALESCE(emp.company_id, ei.company_id) = ANY(${scD.companyIds}::int[]) OR COALESCE(emp.department_id, ei.department_id) = ANY(${scD.departmentIds}::int[]))
       `);
       if (docRow) {
         stats.pendingDocuments = Number(docRow.pending_documents);

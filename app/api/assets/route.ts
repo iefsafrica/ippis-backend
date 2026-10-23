@@ -3,6 +3,7 @@ import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
 import crypto from "crypto";
+import { moduleScope, canSee, canChange, placementFor, placementOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,10 @@ export async function POST(req: NextRequest) {
       return withCors(req, { success: false, error: "asset_name and category_id are required" }, 400);
     }
 
+    // The asset belongs to an MDA inside the caller's scope
+    const placed = await placementFor(auth.ctx, "assets.records.manage", body as Record<string, unknown>);
+    if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status);
+
     const assetId = `AST-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 
     // ✅ Verify Category Exists
@@ -54,14 +59,14 @@ export async function POST(req: NextRequest) {
         asset_id, asset_name, category_id, serial_number, status,
         location, assigned_to, notes,
         purchase_date, purchase_cost, vendor_name, warranty_expiry,
-        created_at, updated_at
+        company_id, department_id, created_at, updated_at
       )
       VALUES (
         ${assetId}, ${body.asset_name}, ${body.category_id}, ${body.serial_number ?? null}, 
         ${body.status ?? 'Available'}, ${body.location ?? null}, ${body.assigned_to ?? null}, 
         ${body.notes ?? null}, ${body.purchase_date ?? null}, ${body.purchase_cost ?? 0},
         ${body.vendor_name ?? null}, ${body.warranty_expiry ?? null},
-        NOW(), NOW()
+        ${placed.placement.companyId}, ${placed.placement.departmentId}, NOW(), NOW()
       )
       RETURNING *
     `;
@@ -95,7 +100,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN asset_categories c ON a.category_id = c.category_id
         WHERE a.asset_id = ${assetId}
       `;
-      if (!single?.[0]) return withCors(req, { success: false, error: "Not found" }, 404);
+      if (!canSee(auth.ctx, "assets.records.view", single?.[0])) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
       return withCors(req, { success: true, data: single[0] });
     }
 
@@ -103,15 +108,18 @@ export async function GET(req: NextRequest) {
     const limit = Number(searchParams.get("limit") || "10");
     const offset = (page - 1) * limit;
 
+    // Only the assets of the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "assets.records.view");
     const results = await db`
       SELECT a.*, c.category_name 
       FROM assets a
       LEFT JOIN asset_categories c ON a.category_id = c.category_id
+      WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
       ORDER BY a.created_at DESC 
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const count = await db`SELECT COUNT(*) FROM assets`;
+    const count = await db`SELECT COUNT(*) FROM assets a WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))`;
 
     return withCors(req, {
       success: true,
@@ -144,9 +152,12 @@ export async function PATCH(req: NextRequest) {
     }
 
     const existing = await db`SELECT * FROM assets WHERE asset_id = ${body.asset_id}`;
-    if (!existing?.[0]) return withCors(req, { success: false, error: "Not found" }, 404);
+    if (!canChange(auth.ctx, "assets.records.manage", existing?.[0])) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
 
-    const a = existing[0];
+    const a = existing[0]!;
+    // Moving the asset to another MDA or department needs authority over the destination too
+    const placed = await placementFor(auth.ctx, "assets.records.manage", body as Record<string, unknown>, placementOf(a));
+    if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status);
 
     // ✅ Verify Category Exists (if being updated)
     if (body.category_id) {
@@ -169,6 +180,8 @@ export async function PATCH(req: NextRequest) {
         purchase_cost = ${body.purchase_cost ?? a.purchase_cost},
         vendor_name = ${body.vendor_name ?? a.vendor_name},
         warranty_expiry = ${body.warranty_expiry ?? a.warranty_expiry},
+        company_id = ${placed.placement.companyId},
+        department_id = ${placed.placement.departmentId},
         updated_at = NOW()
       WHERE asset_id = ${body.asset_id}
       RETURNING *
@@ -197,6 +210,8 @@ export async function DELETE(req: NextRequest) {
     const assetId = searchParams.get("asset_id");
 
     if (!assetId) return withCors(req, { success: false, error: "asset_id required" }, 400);
+    const [existing] = await db`SELECT company_id, department_id FROM assets WHERE asset_id = ${assetId}`;
+    if (!canChange(auth.ctx, "assets.records.manage", existing)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
 
     await db`DELETE FROM assets WHERE asset_id = ${assetId}`;
 

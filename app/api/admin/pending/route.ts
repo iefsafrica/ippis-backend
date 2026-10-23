@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission } from "@/lib/rbac"
+import { recordScope } from "@/lib/mda-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -70,6 +71,9 @@ export async function GET(req: NextRequest) {
     const page = Number(searchParams.get("page") || "1")
     const limit = Number(searchParams.get("limit") || "10")
     const offset = (page - 1) * limit
+    // A registration belongs to the MDA chosen on its form; those without one
+    // are visible with rights across all MDAs only
+    const sc = recordScope(auth.ctx, "employees.registrations.view")
 
     // Ensure table exists
     const exists = await tableExists("pending_employees")
@@ -82,9 +86,12 @@ export async function GET(req: NextRequest) {
 
     //  Fetch paginated rows correctly
     const rows = await sql`
-      SELECT * 
-      FROM pending_employees
-      ORDER BY created_at DESC
+      SELECT p.*, ei.company_id AS mda_id, c.name AS mda_name, ei.department_id
+      FROM pending_employees p
+      LEFT JOIN employment_info ei ON ei.registration_id = p.registration_id
+      LEFT JOIN companies c ON c.id = ei.company_id
+      WHERE (${sc.all}::boolean OR ei.company_id = ANY(${sc.companyIds}::int[]) OR ei.department_id = ANY(${sc.departmentIds}::int[]))
+      ORDER BY p.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `
     console.log("Rows fetched:", rows.length)
@@ -92,7 +99,12 @@ export async function GET(req: NextRequest) {
     const formattedRows = formatDateFields(rows)
 
     //  Get total count
-    const countResult = await sql`SELECT COUNT(*) AS total FROM pending_employees`
+    const countResult = await sql`
+      SELECT COUNT(*) AS total
+      FROM pending_employees p
+      LEFT JOIN employment_info ei ON ei.registration_id = p.registration_id
+      WHERE (${sc.all}::boolean OR ei.company_id = ANY(${sc.companyIds}::int[]) OR ei.department_id = ANY(${sc.departmentIds}::int[]))
+    `
     const total = Number(countResult[0]?.total ?? 0)
 
     return withCors(req, {

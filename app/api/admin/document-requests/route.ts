@@ -4,6 +4,7 @@ import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited, readReason } from "@/lib/rbac";
 import { notify } from "@/lib/employee-notifications";
 import { isDate, todayLagos } from "@/lib/employee-time";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
       return withCors(req, { success: false, error: "status must be open, submitted, fulfilled, cancelled or all" }, 400);
     }
     const statuses = !status ? ["open", "submitted"] : status === "all" ? all : [status];
+    const sc = recordScope(auth.ctx, "employees.documents.view");
 
     const rows = await db`
       SELECT r.id, r.employee_id, e.name AS employee_name, r.title, r.description, r.category,
@@ -34,6 +36,7 @@ export async function GET(req: NextRequest) {
       FROM document_requests r JOIN employees e ON e.id = r.employee_id
       WHERE r.status = ANY(${statuses})
         AND (${employeeId}::text IS NULL OR r.employee_id = ${employeeId})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       ORDER BY r.due_date ASC NULLS LAST, r.created_at ASC
       LIMIT 300
     `;
@@ -62,8 +65,9 @@ export async function POST(req: NextRequest) {
     if (due !== null && (!isDate(due) || due < todayLagos())) {
       return withCors(req, { success: false, error: "due_date must be today or later, YYYY-MM-DD" }, 400);
     }
-    const employee = await db`SELECT id FROM employees WHERE id = ${employeeId}`;
-    if (!employee[0]) return withCors(req, { success: false, error: "Employee not found" }, 404);
+    if (!(await employeeInScope(auth.ctx, "employees.documents.verify", employeeId))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     const [created] = await runAudited(
       req,
@@ -99,6 +103,10 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const id = Number(searchParams.get("id"));
     if (!Number.isInteger(id) || id <= 0) return withCors(req, { success: false, error: "id is required" }, 400);
+    const [owner] = await db`SELECT employee_id FROM document_requests WHERE id = ${id}`;
+    if (!owner || !(await employeeInScope(auth.ctx, "employees.documents.verify", owner.employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     const [updated] = await runAudited(
       req,

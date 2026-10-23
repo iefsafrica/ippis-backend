@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission } from "@/lib/rbac";
+import { employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,8 @@ export async function GET(req: NextRequest) {
     }
 
     const employee = await db`SELECT id, name FROM employees WHERE id = ${employeeId}`;
-    if (!employee[0]) {
-      return withCors(req, { success: false, error: "Employee not found" }, 404);
+    if (!employee[0] || !(await employeeInScope(auth.ctx, "employees.records.view", employeeId))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     const contacts = await db`

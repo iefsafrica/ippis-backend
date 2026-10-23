@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission } from "@/lib/rbac";
+import { keepInScope } from "@/lib/mda-scope";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -36,7 +37,8 @@ export async function GET(req: NextRequest) {
       ORDER BY ep.effective_date DESC
     `;
 
-    const result = await sql.query(query);
+    // Only the promotions of employees inside the caller's MDA or department
+    const result = await keepInScope(auth.ctx, "corehr.records.view", await sql.query(query));
 
     return withCors(req, {
       success: true,

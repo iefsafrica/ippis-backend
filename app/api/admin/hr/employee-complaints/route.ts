@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { keepInScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -76,6 +77,8 @@ export async function GET(req: NextRequest) {
       `;
     }
 
+    // Only the records of employees inside the caller's MDA or department
+    complaints = await keepInScope(auth.ctx, "corehr.records.view", complaints);
     return withCors(req, { success: true, data: complaints });
   } catch (error) {
     console.error("Error fetching complaints:", error);
@@ -131,6 +134,9 @@ export async function POST(req: NextRequest) {
         success: false,
         error: `Employee ID ${employee_id} does not match name "${employee_name}"`,
       }, 400);
+    }
+    if (!(await employeeInScope(auth.ctx, "corehr.records.manage", employee[0].id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     const result = await sql`
@@ -210,6 +216,13 @@ export async function PUT(req: NextRequest) {
     if (!existing[0]) {
       return withCors(req, { success: false, error: "Complaint not found." }, 404);
     }
+    if (!(await employeeInScope(auth.ctx, "corehr.records.manage", existing[0].employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
+    // The record may only be moved to another employee inside the caller's scope
+    if (body.employee_id && !(await employeeInScope(auth.ctx, "corehr.records.manage", body.employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     // Validate employee if changed
     if (employee_id && employee_name) {
@@ -286,6 +299,9 @@ export async function DELETE(req: NextRequest) {
 
     if (!existing[0]) {
       return withCors(req, { success: false, error: "Complaint not found." }, 404);
+    }
+    if (!(await employeeInScope(auth.ctx, "corehr.records.manage", existing[0].employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     await sql`

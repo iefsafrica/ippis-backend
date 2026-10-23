@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { moduleScope, canChange, placementFor, OUT_OF_SCOPE } from "@/lib/module-scope"
 import crypto from "crypto"
 
 export const dynamic = "force-dynamic"
@@ -52,6 +53,10 @@ export async function POST(req: NextRequest) {
       }, 400)
     }
 
+    // The ticket belongs to an MDA inside the caller's scope
+    const placed = await placementFor(auth.ctx, "support.tickets.manage", body as unknown as Record<string, unknown>)
+    if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status)
+
     // Generate ticket_id like TICKET-XXXX
     const randomId = crypto.randomBytes(3).toString("hex").toUpperCase()
     const ticketId = `TICKET-${randomId}`
@@ -66,6 +71,8 @@ export async function POST(req: NextRequest) {
         assigned_to,
         attachment,
         status,
+        company_id,
+        department_id,
         created_at,
         updated_at
       )
@@ -78,6 +85,8 @@ export async function POST(req: NextRequest) {
         ${assigned_to ?? null},
         ${attachment ?? null},
         'Open',
+        ${placed.placement.companyId},
+        ${placed.placement.departmentId},
         NOW(),
         NOW()
       )
@@ -113,14 +122,17 @@ export async function GET(req: NextRequest) {
     const limit = Number(searchParams.get("limit") || "10")
     const offset = (page - 1) * limit
 
+    // Only the tickets of the caller's MDA or department (the helpdesk works across all)
+    const sc = moduleScope(auth.ctx, "support.tickets.view")
     const tickets = await sql`
-      SELECT * FROM support_tickets
-      ORDER BY updated_at DESC
+      SELECT * FROM support_tickets s
+      WHERE (${sc.all}::boolean OR s.company_id = ANY(${sc.companyIds}::int[]) OR s.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND s.company_id IS NULL))
+      ORDER BY s.updated_at DESC
       LIMIT ${limit} OFFSET ${offset}
     ` as SupportTicket[]
 
     const countResult = await sql`
-      SELECT COUNT(*) AS total FROM support_tickets
+      SELECT COUNT(*) AS total FROM support_tickets s WHERE (${sc.all}::boolean OR s.company_id = ANY(${sc.companyIds}::int[]) OR s.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND s.company_id IS NULL))
     ` as { total: number }[]
 
     const total = Number(countResult[0]?.total ?? 0)
@@ -165,6 +177,10 @@ export async function PATCH(req: NextRequest) {
 
     if (!ticket_id) {
       return withCors(req, { success: false, error: "ticket_id is required" }, 400)
+    }
+    const [existing] = await sql`SELECT company_id, department_id FROM support_tickets WHERE ticket_id = ${ticket_id}`
+    if (!canChange(auth.ctx, "support.tickets.manage", existing)) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404)
     }
 
     const updated = await sql`
@@ -211,6 +227,11 @@ export async function DELETE(req: NextRequest) {
 
     if (!ticketId) {
       return withCors(req, { success: false, error: "ticket_id is required" }, 400)
+    }
+
+    const [existing] = await sql`SELECT company_id, department_id FROM support_tickets WHERE ticket_id = ${ticketId}`
+    if (!canChange(auth.ctx, "support.tickets.manage", existing)) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404)
     }
 
     await sql`

@@ -2,7 +2,9 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { registrationsOutOfScope, OUT_OF_SCOPE } from "@/lib/mda-scope"
 import { inviteToPortal } from "@/lib/employee-invite"
+import { linkEmployeeToMda } from "@/lib/employee-mda"
 import { sendEmployeeApprovalEmail } from "@/lib/email"
 
 export const dynamic = "force-dynamic"
@@ -45,7 +47,14 @@ export async function POST(req: NextRequest) {
       failed: [] as { id: string; error: string }[],
     }
 
+    // Registrations outside the caller's MDA or department scope are reported, not approved
+    const outOfScope = await registrationsOutOfScope(auth.ctx, "employees.registrations.approve", registrationIds.map(String))
+
     for (const registrationId of registrationIds) {
+      if (outOfScope.includes(String(registrationId))) {
+        results.failed.push({ id: registrationId, error: OUT_OF_SCOPE })
+        continue
+      }
       try {
         // Fetch pending employee
         const pending = (await sql`
@@ -114,6 +123,10 @@ export async function POST(req: NextRequest) {
         `
 
         results.success.push(registrationId)
+
+        // Link the employee to the MDA and department named at registration (exact matches only;
+        // anything else is left for HR in /api/admin/employees/mda-mapping)
+        await linkEmployeeToMda(registrationId, auth.ctx.user.username)
 
         // Invite the employee to the employee portal, where they set their own password.
         // A failed invite does not block the approval; HR can resend it from Employee accounts.

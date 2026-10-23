@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { moduleScope } from "@/lib/module-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -26,10 +27,13 @@ export async function POST(req: NextRequest) {
       }, 400)
     }
 
+    // Only assets of the caller's MDA or department; the rest are skipped
+    const sc = moduleScope(auth.ctx, "assets.records.approve")
     const existing = await sql`
-      SELECT asset_id FROM assets
-      WHERE asset_id = ANY(${assetIds})
-      AND asset_name IS NOT NULL AND asset_name != ''
+      SELECT a.asset_id FROM assets a
+      WHERE a.asset_id = ANY(${assetIds})
+      AND a.asset_name IS NOT NULL AND a.asset_name != ''
+      AND (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
     `
     const existingIds = existing.map(r => r.asset_id)
     const missingIds = assetIds.filter(id => !existingIds.includes(id))

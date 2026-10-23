@@ -3,6 +3,7 @@ import { requirePermission, runAudited } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import Papa from "papaparse";
+import { recordScope, inScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -35,6 +36,9 @@ export async function POST(req: NextRequest) {
       return withCors(req, { success: false, message: "CSV is empty or invalid" }, 400);
     }
 
+    // Rows for employees outside the caller's MDA or department are refused
+    const sc = recordScope(auth.ctx, "timesheets.attendance.manage");
+
     let imported = 0;
     let skipped = 0;
     const errors: { employee_code: string; reason: string }[] = [];
@@ -55,14 +59,14 @@ export async function POST(req: NextRequest) {
 
       // Check employee exists
       const employeeResult = await sql`
-        SELECT id, name, department
+        SELECT id, name, department, company_id, department_id
         FROM employees
         WHERE id = ${employee_code}
         LIMIT 1
       `;
       const employee = employeeResult[0];
-      if (!employee) {
-        errors.push({ employee_code, reason: "Employee not found" });
+      if (!employee || !inScope(sc, employee.company_id, employee.department_id)) {
+        errors.push({ employee_code, reason: employee ? OUT_OF_SCOPE : "Employee not found" });
         skipped++;
         continue;
       }

@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { recordScope } from "@/lib/mda-scope";
 import Papa from "papaparse";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,11 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requirePermission(req, "employees.records.create");
     if (!auth.ok) return auth.response;
+    // Imported registrations carry no MDA yet, so only someone with rights
+    // across all MDAs may import them (they would be invisible to anyone else)
+    if (!recordScope(auth.ctx, "employees.records.create").all) {
+      return withCors(req, { success: false, error: "Importing registrations needs employee rights across all MDAs" }, 403);
+    }
 
     // Parse form-data
     const formData = await req.formData();

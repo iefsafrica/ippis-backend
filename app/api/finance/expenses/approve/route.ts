@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { moduleScope } from "@/lib/module-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -26,10 +27,14 @@ export async function POST(req: NextRequest) {
       }, 400)
     }
 
+    // Only expenses of accounts in the caller's MDA or department; the rest are skipped
+    const sc = moduleScope(auth.ctx, "finance.records.approve")
     const existing = await sql`
-      SELECT expense_id FROM finance_expenses
-      WHERE expense_id = ANY(${expenseIds})
-      AND amount > 0 AND account_id IS NOT NULL
+      SELECT e.expense_id FROM finance_expenses e
+      JOIN finance_accounts a ON a.account_id = e.account_id
+      WHERE e.expense_id = ANY(${expenseIds})
+      AND e.amount > 0
+      AND (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
     `
     const existingIds = existing.map(r => r.expense_id)
     const missingIds = expenseIds.filter(id => !existingIds.includes(id))

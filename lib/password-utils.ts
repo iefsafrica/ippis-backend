@@ -45,3 +45,24 @@ export function validatePasswordStrength(password: string): { valid: boolean; me
   }
   return { valid: true };
 }
+
+/**
+ * A random one-off password for a new account, sent to the user by email.
+ * 14 characters from an unambiguous alphabet, always including upper case,
+ * lower case and a digit, so it passes validatePasswordStrength.
+ */
+export function generateTemporaryPassword(): string {
+  const upper = "ABCDEFGHJKMNPQRSTUVWXYZ";
+  const lower = "abcdefghjkmnpqrstuvwxyz";
+  const digits = "23456789";
+  const all = upper + lower + digits;
+  const pick = (set: string) => set[crypto.randomInt(set.length)]!;
+  const chars = [pick(upper), pick(lower), pick(digits)];
+  while (chars.length < 14) chars.push(pick(all));
+  // Fisher-Yates shuffle so the guaranteed characters are not always first
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j]!, chars[i]!];
+  }
+  return chars.join("");
+}

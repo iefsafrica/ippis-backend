@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { moduleScope } from "@/lib/module-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -26,10 +27,13 @@ export async function POST(req: NextRequest) {
       }, 400)
     }
 
+    // Only tickets of the caller's MDA or department; the rest are skipped
+    const sc = moduleScope(auth.ctx, "support.tickets.approve")
     const existing = await sql`
-      SELECT ticket_id FROM support_tickets
-      WHERE ticket_id = ANY(${ticketIds})
-      AND subject IS NOT NULL AND subject != ''
+      SELECT s.ticket_id FROM support_tickets s
+      WHERE s.ticket_id = ANY(${ticketIds})
+      AND s.subject IS NOT NULL AND s.subject != ''
+      AND (${sc.all}::boolean OR s.company_id = ANY(${sc.companyIds}::int[]) OR s.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND s.company_id IS NULL))
     `
     const existingIds = existing.map(r => r.ticket_id)
     const missingIds = ticketIds.filter(id => !existingIds.includes(id))

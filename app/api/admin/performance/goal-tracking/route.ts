@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 import { withCors, handleOptions } from "@/lib/cors";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -10,6 +11,12 @@ export const dynamic = "force-dynamic";
 // =========================
 // OPTIONS (CORS preflight)
 // =========================
+// Whether the goal exists and its employee is inside the caller's scope
+async function goalInScope(ctx: Parameters<typeof employeeInScope>[0], id: unknown) {
+  const [row] = await sql`SELECT employee_id FROM goals WHERE id::text = ${String(id)}`;
+  return !!row && (await employeeInScope(ctx, "performance.records.manage", row.employee_id));
+}
+
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
 }
@@ -24,17 +31,21 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    // Only the goals of employees inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "performance.records.view");
 
     if (id) {
       const result = await sql`
         SELECT g.*, gt.goal_type
         FROM goals g
         LEFT JOIN goal_types gt ON g.goal_type_id = gt.id
+        LEFT JOIN employees e ON e.id = g.employee_id
         WHERE g.id = ${id}
+          AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       `;
 
       if (!result.length)
-        return withCors(req, { success: false, error: "Goal not found" }, 404);
+        return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
 
       return withCors(req, { success: true, data: result[0] });
     }
@@ -43,6 +54,8 @@ export async function GET(req: NextRequest) {
       SELECT g.*, gt.goal_type
       FROM goals g
       LEFT JOIN goal_types gt ON g.goal_type_id = gt.id
+      LEFT JOIN employees e ON e.id = g.employee_id
+      WHERE (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       ORDER BY g.created_at DESC
     `;
 
@@ -80,6 +93,9 @@ export async function POST(req: NextRequest) {
 
     if (!employee_id || !goal_type_id || !title)
       return withCors(req, { success: false, error: "employee_id, goal_type_id, and title are required" }, 400);
+
+    if (!(await employeeInScope(auth.ctx, "performance.records.manage", employee_id)))
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
 
     const inserted = await sql`
       INSERT INTO goals (employee_id, goal_type_id, title, description, status, target_date, created_at)
@@ -131,6 +147,10 @@ export async function PUT(req: NextRequest) {
     if (!id)
       return withCors(req, { success: false, error: "Goal ID is required" }, 400);
 
+    // The goal, and any employee it is moved to, must be inside the caller's scope
+    if (!(await goalInScope(auth.ctx, id)) || (employee_id && !(await employeeInScope(auth.ctx, "performance.records.manage", employee_id))))
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+
     const updated = await sql`
       UPDATE goals
       SET
@@ -177,6 +197,9 @@ export async function DELETE(req: NextRequest) {
     const { id } = body;
     if (!id)
       return withCors(req, { success: false, error: "Goal ID is required" }, 400);
+
+    if (!(await goalInScope(auth.ctx, id)))
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
 
     const deleted = await sql`
       DELETE FROM goals

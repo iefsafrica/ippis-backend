@@ -7,6 +7,9 @@ import {
   resolveRegistrationIdInput,
 } from "@/lib/registration-id";
 
+import { isApprovedApplication, APPROVED_LOCKED } from "@/lib/registration-lock";
+import { registrationAccess } from "@/lib/registration-token";
+
 const sql = neon(process.env.DATABASE_URL!);
 
 /* -------------------------
@@ -39,6 +42,13 @@ export async function POST(req: NextRequest) {
     const resolvedRegistrationId = await findRegistrationIdInDb(sql, registration_id);
     if (!resolvedRegistrationId) {
       return withCors(req, { success: false, message: "Invalid registration ID" }, 404);
+    }
+    if (await isApprovedApplication(resolvedRegistrationId)) {
+      return withCors(req, { success: false, message: APPROVED_LOCKED }, 409);
+    }
+    const access = await registrationAccess(req, resolvedRegistrationId, formData.get("registration_token"));
+    if (!access.ok) {
+      return withCors(req, { success: false, message: access.message }, access.status);
     }
 
     const uploadFile = async (fieldName: string, required = false) => {
@@ -142,7 +152,8 @@ export async function POST(req: NextRequest) {
     return withCors(req, {
       success: false,
       message: "Failed to upload documents",
-      error: error.message,
+      // Only the problems with the files themselves are the applicant's to see
+      ...(/is required|invalid file type|exceeds 5MB|Failed to upload/.test(String(error?.message)) ? { error: error.message } : {}),
     }, 500);
   }
 }

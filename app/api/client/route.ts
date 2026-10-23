@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, placementFor, placementOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,10 @@ export async function POST(req: NextRequest) {
       return withCors(req, { success: false, error: "Missing required fields" }, 400);
     }
 
+    // The client belongs to an MDA inside the caller's scope
+    const placed = await placementFor(auth.ctx, "projects.records.manage", body as Record<string, unknown>);
+    if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status);
+
     // Auto-generate client_code
     const lastClient = await sql`SELECT client_code FROM clients ORDER BY id DESC LIMIT 1`;
     let newClientCode = "CLT-001";
@@ -75,7 +80,9 @@ export async function POST(req: NextRequest) {
         contact_person,
         email,
         phone,
-        status
+        status,
+        company_id,
+        department_id
       )
       VALUES (
         ${newClientCode},
@@ -83,7 +90,9 @@ export async function POST(req: NextRequest) {
         ${body.contact_person},
         ${body.email},
         ${body.phone},
-        ${body.status || "Active"}
+        ${body.status || "Active"},
+        ${placed.placement.companyId},
+        ${placed.placement.departmentId}
       )
       RETURNING *
     `;
@@ -114,19 +123,23 @@ export async function GET(req: NextRequest) {
     const offset = (page - 1) * limit;
 
     const idFilter = searchParams.get("id");
+    // Only the clients of the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "projects.records.view");
 
     let rows;
     if (idFilter) {
-      rows = await sql`SELECT * FROM clients WHERE id = ${idFilter}`;
+      rows = await sql`SELECT * FROM clients c WHERE c.id = ${idFilter} AND (${sc.all}::boolean OR c.company_id = ANY(${sc.companyIds}::int[]) OR c.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND c.company_id IS NULL))`;
+      if (!rows.length) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     } else {
       rows = await sql`
-        SELECT * FROM clients
-        ORDER BY created_at DESC
+        SELECT * FROM clients c
+        WHERE (${sc.all}::boolean OR c.company_id = ANY(${sc.companyIds}::int[]) OR c.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND c.company_id IS NULL))
+        ORDER BY c.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
     }
 
-    const countResult = await sql`SELECT COUNT(*) AS total FROM clients`;
+    const countResult = await sql`SELECT COUNT(*) AS total FROM clients c WHERE (${sc.all}::boolean OR c.company_id = ANY(${sc.companyIds}::int[]) OR c.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND c.company_id IS NULL))`;
     const total = Number(countResult?.[0]?.total ?? 0);
 
     return withCors(req, {
@@ -153,6 +166,10 @@ export async function PUT(req: NextRequest) {
 
     const body = (await req.json()) as ClientPayload;
     if (!body.id) return withCors(req, { success: false, error: "ID is required" }, 400);
+    const [existing] = await sql`SELECT company_id, department_id FROM clients WHERE id = ${body.id}`;
+    if (!canChange(auth.ctx, "projects.records.manage", existing)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    const placed = await placementFor(auth.ctx, "projects.records.manage", body as Record<string, unknown>, placementOf(existing));
+    if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status);
 
     const result = await sql`
       UPDATE clients SET
@@ -160,7 +177,9 @@ export async function PUT(req: NextRequest) {
         contact_person = COALESCE(${body.contact_person}, contact_person),
         email = COALESCE(${body.email}, email),
         phone = COALESCE(${body.phone}, phone),
-        status = COALESCE(${body.status}, status)
+        status = COALESCE(${body.status}, status),
+        company_id = ${placed.placement.companyId},
+        department_id = ${placed.placement.departmentId}
       WHERE id = ${body.id}
       RETURNING *
     `;
@@ -187,6 +206,8 @@ export async function DELETE(req: NextRequest) {
     const id = searchParams.get("id");
     if (!id) return withCors(req, { success: false, error: "ID required" }, 400);
 
+    const [existing] = await sql`SELECT company_id, department_id FROM clients WHERE id = ${id}`;
+    if (!canChange(auth.ctx, "projects.records.manage", existing)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     const result = await sql`DELETE FROM clients WHERE id = ${id} RETURNING *`;
     if (!result.length) return withCors(req, { success: false, error: "Client not found" }, 404);
 

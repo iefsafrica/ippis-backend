@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { keepInScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -65,6 +66,8 @@ export async function GET(req: NextRequest) {
       `;
     }
 
+    // Only the records of employees inside the caller's MDA or department
+    records = await keepInScope(auth.ctx, "corehr.records.view", records);
     return withCors(req, { success: true, data: records });
   } catch (error) {
     console.error("Error fetching travel records:", error);
@@ -102,6 +105,9 @@ export async function POST(req: NextRequest) {
         error: `Employee ID ${employee_id} does not match name "${employee_name}"`,
       }, 400);
     }
+    if (!(await employeeInScope(auth.ctx, "corehr.records.manage", employee[0].id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     const result = await sql`
       INSERT INTO employee_travel
@@ -133,6 +139,13 @@ export async function PUT(req: NextRequest) {
 
     const existing = await sql`SELECT * FROM employee_travel WHERE id = ${id}`;
     if (!existing[0]) return withCors(req, { success: false, error: "Travel record not found." }, 404);
+    if (!(await employeeInScope(auth.ctx, "corehr.records.manage", existing[0].employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
+    // The record may only be moved to another employee inside the caller's scope
+    if (body.employee_id && !(await employeeInScope(auth.ctx, "corehr.records.manage", body.employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     // Validate employee_id matches employee_name if either is being updated
     if (employee_id && employee_name) {
@@ -187,6 +200,9 @@ export async function DELETE(req: NextRequest) {
 
     const existing = await sql`SELECT * FROM employee_travel WHERE id = ${id}`;
     if (!existing[0]) return withCors(req, { success: false, error: "Travel record not found." }, 404);
+    if (!(await employeeInScope(auth.ctx, "corehr.records.manage", existing[0].employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     await sql`DELETE FROM employee_travel WHERE id = ${id}`;
 

@@ -2,6 +2,8 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
+import { decisionRefusal } from "@/lib/approvals";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -15,16 +17,17 @@ export async function PATCH(req: NextRequest) {
     const auth = await requirePermission(req, "corehr.records.approve");
     if (!auth.ok) return auth.response;
 
-    const { id, disapproved_by, reason } = (await req.json()) as {
+    const { id, reason } = ((await req.json().catch(() => ({}))) ?? {}) as {
       id?: number;
-      disapproved_by?: string;
       reason?: string;
     };
+    // Whoever is signed in disapproves; a name in the request is ignored
+    const disapproved_by = auth.ctx.user.username;
 
-    if (!id || !disapproved_by) {
+    if (!id) {
       return withCors(req, {
         success: false,
-        error: "id and disapproved_by are required.",
+        error: "id is required.",
       }, 400);
     }
 
@@ -35,6 +38,8 @@ export async function PATCH(req: NextRequest) {
     if (!existing[0]) {
       return withCors(req, { success: false, error: "Resignation not found." }, 404);
     }
+    const refusal = await decisionRefusal(auth.ctx, "corehr.records.approve", existing[0].employee_id);
+    if (refusal) return withCors(req, { success: false, error: refusal.error }, refusal.status);
 
     if (existing[0].status !== "pending") {
       return withCors(req, {
@@ -59,7 +64,7 @@ export async function PATCH(req: NextRequest) {
       return withCors(req, { success: false, error: "Disapproval failed." }, 500);
     }
 
-    await runAudited(req, auth.ctx, { action: "corehr.resignation.rejected", targetType: "corehr.resignation", details: {} }, []);
+    await runAudited(req, auth.ctx, { action: "corehr.resignation.rejected", targetType: "employee", targetId: String(existing[0].employee_id), reason: reason ?? null, details: { resignation_id: id } }, []);
 
     return withCors(req, {
       success: true,

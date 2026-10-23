@@ -1,13 +1,16 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { authenticate } from "@/lib/rbac";
+import { recordScope } from "@/lib/mda-scope";
 import { neon } from "@neondatabase/serverless";
 import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
 
 export async function GET(req: NextRequest) {
   try {
-    // Any signed-in admin; figures are not yet limited to the caller's MDA
+    // Any signed-in admin; counts only records inside the caller's scope (DSH-02)
     const auth = await authenticate(req);
     if (!auth.ok) return auth.response;
+    const scE = recordScope(auth.ctx, "employees.records.view");
+    const scR = recordScope(auth.ctx, "employees.registrations.view");
 
     const sql = neon(process.env.DATABASE_URL!);
 
@@ -33,8 +36,9 @@ export async function GET(req: NextRequest) {
         // Get employee registrations for this month
         const employeeResult = await sql`
   SELECT COUNT(*) as count
-  FROM employees
-  WHERE created_at >= ${startDate} AND created_at <= ${endDate};
+  FROM employees e
+  WHERE e.created_at >= ${startDate} AND e.created_at <= ${endDate}
+    AND (${scE.all}::boolean OR e.company_id = ANY(${scE.companyIds}::int[]) OR e.department_id = ANY(${scE.departmentIds}::int[]));
 `;
 employeeData.push(Number(employeeResult[0]?.count || 0));
 
@@ -42,8 +46,10 @@ employeeData.push(Number(employeeResult[0]?.count || 0));
         // Get pending registrations for this month
 const pendingResult = await sql`
   SELECT COUNT(*) as count
-  FROM pending_employees
-  WHERE created_at >= ${startDate} AND created_at <= ${endDate};
+  FROM pending_employees p
+  LEFT JOIN employment_info ei ON ei.registration_id = p.registration_id
+  WHERE p.created_at >= ${startDate} AND p.created_at <= ${endDate}
+    AND (${scR.all}::boolean OR ei.company_id = ANY(${scR.companyIds}::int[]) OR ei.department_id = ANY(${scR.departmentIds}::int[]));
 `;
 pendingData.push(Number(pendingResult[0]?.count || 0));
 
@@ -109,27 +115,11 @@ pendingData.push(Number(pendingResult[0]?.count || 0));
 // Helper function to check if required tables exist
 async function checkTablesExist(sql: any) {
   try {
-    const query = `
-      SELECT 
-        EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_name = 'employees'
-        ) as employees_exist,
-        EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_name = 'pending_employees'
-        ) as pending_employees_exist
+    const [row] = await sql`
+      SELECT to_regclass('public.employees') IS NOT NULL AS employees_exist,
+             to_regclass('public.pending_employees') IS NOT NULL AS pending_employees_exist
     `;
-
-    const result = await sql(query);
-
-    if (!Array.isArray(result) || result.length === 0) {
-      console.warn("Unexpected query result format:", result);
-      return false;
-    }
-
-    const { employees_exist, pending_employees_exist } = result[0];
-    return employees_exist || pending_employees_exist;
+    return Boolean(row?.employees_exist || row?.pending_employees_exist);
   } catch (error) {
     console.error("Error checking tables:", error);
     return false;

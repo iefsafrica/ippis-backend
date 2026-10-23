@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { visibleRows, canChange, placementFor, placementOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -58,6 +59,8 @@ export async function GET(req: NextRequest) {
       `;
     }
 
+    // Events of the caller's MDA or department, and events for everyone (no MDA)
+    events = visibleRows(auth.ctx, "calendar.events.view", events, true);
     return withCors(req, { success: true, data: events });
   } catch (error) {
     console.error("Error fetching events:", error);
@@ -133,6 +136,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // An event belongs to an MDA inside the caller's scope; only users with
+    // rights across all MDAs can create an event for everyone (no MDA)
+    const placed = await placementFor(auth.ctx, "calendar.events.manage", body as unknown as Record<string, unknown>);
+    if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status);
+
     /* ---------- Insert event ---------- */
     const result = await sql`
       INSERT INTO hr_events (
@@ -146,6 +154,8 @@ export async function POST(req: NextRequest) {
         description,
         attendees,
         status,
+        company_id,
+        department_id,
         created_at,
         updated_at
       )
@@ -160,6 +170,8 @@ export async function POST(req: NextRequest) {
         ${description},
         ${attendees},
         'active',
+        ${placed.placement.companyId},
+        ${placed.placement.departmentId},
         NOW(),
         NOW()
       )
@@ -208,6 +220,13 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    const [existing] = await sql`SELECT company_id, department_id FROM hr_events WHERE id = ${id}`;
+    if (!canChange(auth.ctx, "calendar.events.manage", existing)) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
+    const placed = await placementFor(auth.ctx, "calendar.events.manage", body as unknown as Record<string, unknown>, placementOf(existing));
+    if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status);
+
     /* ---------- Validate employees ---------- */
     if (body.attendees && body.attendees.length > 0) {
       const existingEmployees = (await sql`
@@ -250,6 +269,8 @@ export async function PUT(req: NextRequest) {
         description = COALESCE(${body.description}, description),
         attendees = COALESCE(${body.attendees}, attendees),
         status = COALESCE(${body.status}, status),
+        company_id = ${placed.placement.companyId},
+        department_id = ${placed.placement.departmentId},
         updated_at = NOW()
       WHERE id = ${id}
       RETURNING *
@@ -290,6 +311,11 @@ export async function DELETE(req: NextRequest) {
         { success: false, error: "Event id is required" },
         400
       );
+    }
+
+    const [existing] = await sql`SELECT company_id, department_id FROM hr_events WHERE id = ${id}`;
+    if (!canChange(auth.ctx, "calendar.events.manage", existing)) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     await sql`

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, placementFor, placementOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -35,12 +36,14 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    // Only the programmes of the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "training.records.view");
 
     // 👉 GET ONE
     if (id) {
       const result = await sql`
-        SELECT * FROM training_programs
-        WHERE id = ${id}
+        SELECT * FROM training_programs t
+        WHERE t.id = ${id} AND (${sc.all}::boolean OR t.company_id = ANY(${sc.companyIds}::int[]) OR t.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND t.company_id IS NULL))
       `;
 
       return withCors(req, {
@@ -54,8 +57,9 @@ export async function GET(req: NextRequest) {
 
     // 👉 GET ALL
     const trainings = await sql`
-      SELECT * FROM training_programs
-      ORDER BY id DESC
+      SELECT * FROM training_programs t
+      WHERE (${sc.all}::boolean OR t.company_id = ANY(${sc.companyIds}::int[]) OR t.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND t.company_id IS NULL))
+      ORDER BY t.id DESC
     `;
 
     return withCors(req, {
@@ -110,9 +114,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // The programme belongs to an MDA inside the caller's scope
+    const placed = await placementFor(auth.ctx, "training.records.manage", body as unknown as Record<string, unknown>);
+    if (!placed.ok) return withCors(req, { success: false, message: placed.error }, placed.status);
+
     const result = await sql`
       INSERT INTO training_programs
-      (training_title, type, trainer, start_date, participants, cost, status)
+      (training_title, type, trainer, start_date, participants, cost, status, company_id, department_id)
       VALUES (
         ${training_title},
         ${type},
@@ -120,7 +128,9 @@ export async function POST(req: NextRequest) {
         ${start_date},
         ${participants},
         ${cost},
-        ${status}
+        ${status},
+        ${placed.placement.companyId},
+        ${placed.placement.departmentId}
       )
       RETURNING *
     `;
@@ -181,6 +191,13 @@ export async function PUT(req: NextRequest) {
       status,
     } = body;
 
+    const [existing] = await sql`SELECT company_id, department_id FROM training_programs WHERE id = ${id}`;
+    if (!canChange(auth.ctx, "training.records.manage", existing)) {
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
+    }
+    const placed = await placementFor(auth.ctx, "training.records.manage", body as unknown as Record<string, unknown>, placementOf(existing));
+    if (!placed.ok) return withCors(req, { success: false, message: placed.error }, placed.status);
+
     const result = await sql`
       UPDATE training_programs SET
         training_title = ${training_title},
@@ -190,6 +207,8 @@ export async function PUT(req: NextRequest) {
         participants = ${participants},
         cost = ${cost},
         status = ${status},
+        company_id = ${placed.placement.companyId},
+        department_id = ${placed.placement.departmentId},
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ${id}
       RETURNING *
@@ -239,6 +258,11 @@ export async function DELETE(req: NextRequest) {
         },
         400
       );
+    }
+
+    const [existing] = await sql`SELECT company_id, department_id FROM training_programs WHERE id = ${id}`;
+    if (!canChange(auth.ctx, "training.records.manage", existing)) {
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
     }
 
     const result = await sql`

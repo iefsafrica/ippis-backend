@@ -10,6 +10,7 @@ import {
   emailTaken,
 } from "@/lib/employee-profile";
 import { notify } from "@/lib/employee-notifications";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,8 @@ export async function GET(req: NextRequest) {
       return withCors(req, { success: false, error: `status must be one of: ${[...STATUSES, "all"].join(", ")}` }, 400);
     }
     const filter = status === "all" ? null : status;
+    // Only the requests of employees inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "employees.records.view");
 
     const rows = await db`
       SELECT r.id, r.employee_id, e.name AS employee_name, e.department, r.status, r.changes,
@@ -46,14 +49,17 @@ export async function GET(req: NextRequest) {
       JOIN employees e ON e.id = r.employee_id
       WHERE (${filter}::text IS NULL OR r.status = ${filter})
         AND (${employeeId}::text IS NULL OR r.employee_id = ${employeeId})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       -- Pending requests oldest first (a queue); decided ones newest first
       ORDER BY CASE WHEN ${filter}::text = 'pending' THEN r.created_at END ASC, r.created_at DESC
       LIMIT ${limit} OFFSET ${(page - 1) * limit}
     `;
     const totals = await db`
-      SELECT COUNT(*)::int AS count FROM employee_profile_change_requests
-      WHERE (${filter}::text IS NULL OR status = ${filter})
-        AND (${employeeId}::text IS NULL OR employee_id = ${employeeId})
+      SELECT COUNT(*)::int AS count FROM employee_profile_change_requests r
+      JOIN employees e ON e.id = r.employee_id
+      WHERE (${filter}::text IS NULL OR r.status = ${filter})
+        AND (${employeeId}::text IS NULL OR r.employee_id = ${employeeId})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
     `;
 
     return withCors(req, {
@@ -89,8 +95,8 @@ export async function PATCH(req: NextRequest) {
       SELECT id, employee_id, status, changes FROM employee_profile_change_requests WHERE id = ${id}
     `;
     const request = rows[0];
-    if (!request) {
-      return withCors(req, { success: false, error: "Change request not found" }, 404);
+    if (!request || !(await employeeInScope(auth.ctx, "employees.records.approve", request.employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
     if (request.status !== "pending") {
       return withCors(req, { success: false, error: `This request is already ${request.status}` }, 409);

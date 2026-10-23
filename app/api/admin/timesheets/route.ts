@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited, readReason } from "@/lib/rbac";
 import { notify } from "@/lib/employee-notifications";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
       return withCors(req, { success: false, error: `status must be one of: ${[...STATUSES, "all"].join(", ")}` }, 400);
     }
     const filter = status === "all" ? null : status;
+    const sc = recordScope(auth.ctx, "timesheets.attendance.view");
 
     const rows = await db`
       SELECT t.id, t.employee_id, e.name AS employee_name, e.department, t.week_start::text AS week_start,
@@ -34,6 +36,7 @@ export async function GET(req: NextRequest) {
       FROM employee_timesheets t JOIN employees e ON e.id = t.employee_id
       WHERE (${filter}::text IS NULL OR t.status = ${filter})
         AND (${employeeId}::text IS NULL OR t.employee_id = ${employeeId})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       ORDER BY t.submitted_at ASC
       LIMIT 200
     `;
@@ -60,6 +63,11 @@ export async function PATCH(req: NextRequest) {
       return withCors(req, { success: false, error: "A note is required when rejecting" }, 400);
     }
     const outcome = body.decision === "approve" ? "approved" : "rejected";
+
+    const [sheetOwner] = await db`SELECT employee_id FROM employee_timesheets WHERE id = ${id}`;
+    if (!sheetOwner || !(await employeeInScope(auth.ctx, "timesheets.attendance.manage", sheetOwner.employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     const [updated] = await runAudited(
       req,

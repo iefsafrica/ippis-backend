@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, placementFor, placementOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -70,18 +71,22 @@ export async function POST(req: NextRequest) {
       }, 400);
     }
 
+    // The payee belongs to an MDA inside the caller's scope
+    const placed = await placementFor(auth.ctx, "finance.records.manage", body as Record<string, unknown>);
+    if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status);
+
     const payeeId = `PAY-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 
     const result = await db`
       INSERT INTO finance_payees (
         payee_id, payee_name, contact_person, email, phone,
         address, account_number, bank_name, tax_id,
-        category, status, notes, created_at, updated_at
+        category, status, notes, company_id, department_id, created_at, updated_at
       )
       VALUES (
         ${payeeId}, ${payee_name}, ${contact_person}, ${email}, ${phone},
         ${address}, ${account_number}, ${bank_name}, ${tax_id ?? null},
-        ${category}, ${status ?? "Active"}, ${notes ?? null}, NOW(), NOW()
+        ${category}, ${status ?? "Active"}, ${notes ?? null}, ${placed.placement.companyId}, ${placed.placement.departmentId}, NOW(), NOW()
       )
       RETURNING *
     `;
@@ -136,30 +141,17 @@ export async function GET(req: NextRequest) {
       validSortFields[sortBy as keyof typeof validSortFields] ||
       "created_at";
 
-    // ✅ search condition
-    const searchCondition = search
-      ? db`payee_name ILIKE ${"%" + search + "%"}`
-      : db`TRUE`;
-
-    // ✅ ORDER handling (NO dynamic string injection)
-    const result = await db`
-      SELECT * FROM finance_payees
-      WHERE ${searchCondition}
-      ORDER BY 
-        CASE WHEN ${sortField} = 'payee_name' THEN payee_name END ${order ? db`ASC` : db`DESC`},
-        CASE WHEN ${sortField} = 'contact_person' THEN contact_person END ${order ? db`ASC` : db`DESC`},
-        CASE WHEN ${sortField} = 'email' THEN email END ${order ? db`ASC` : db`DESC`},
-        CASE WHEN ${sortField} = 'phone' THEN phone END ${order ? db`ASC` : db`DESC`},
-        CASE WHEN ${sortField} = 'category' THEN category END ${order ? db`ASC` : db`DESC`},
-        CASE WHEN ${sortField} = 'status' THEN status END ${order ? db`ASC` : db`DESC`},
-        CASE WHEN ${sortField} = 'last_payment' THEN last_payment END ${order ? db`ASC` : db`DESC`},
-        created_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-
-    const count = await db`
-      SELECT COUNT(*) FROM finance_payees
-    `;
+    // Only the payees of the caller's MDA or department. One parameterised
+    // query: the sort column comes from the whitelist above, never the request.
+    const sc = moduleScope(auth.ctx, "finance.records.view");
+    const where = `WHERE ($1::text IS NULL OR payee_name ILIKE $1)
+      AND ($2::boolean OR company_id = ANY($3::int[]) OR department_id = ANY($4::int[]))`;
+    const params = [search ? `%${search}%` : null, sc.all, sc.companyIds, sc.departmentIds];
+    const result = await db.query(
+      `SELECT * FROM finance_payees ${where} ORDER BY ${sortField} ${order ? "ASC" : "DESC"} NULLS LAST, created_at DESC LIMIT $5 OFFSET $6`,
+      [...params, limit, offset]
+    );
+    const count = await db.query(`SELECT COUNT(*) FROM finance_payees ${where}`, params);
 
     return withCors(req, {
       success: true,
@@ -202,14 +194,13 @@ export async function PATCH(req: NextRequest) {
       SELECT * FROM finance_payees WHERE payee_id = ${body.payee_id}
     `;
 
-    const e = existing?.[0];
+    const e = existing?.[0]!;
 
-    if (!e) {
-      return withCors(req, {
-        success: false,
-        error: "Not found"
-      }, 404);
+    if (!canChange(auth.ctx, "finance.records.manage", e)) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
+    const placed = await placementFor(auth.ctx, "finance.records.manage", body as Record<string, unknown>, placementOf(e));
+    if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status);
 
     const updated = await db`
       UPDATE finance_payees SET
@@ -224,6 +215,8 @@ export async function PATCH(req: NextRequest) {
         category = ${body.category ?? e.category},
         status = ${body.status ?? e.status},
         notes = ${body.notes ?? e.notes},
+        company_id = ${placed.placement.companyId},
+        department_id = ${placed.placement.departmentId},
         updated_at = NOW()
       WHERE payee_id = ${body.payee_id}
       RETURNING *
@@ -260,6 +253,11 @@ export async function DELETE(req: NextRequest) {
         success: false,
         error: "payee_id required"
       }, 400);
+    }
+
+    const [existing] = await db`SELECT company_id, department_id FROM finance_payees WHERE payee_id = ${payeeId}`;
+    if (!canChange(auth.ctx, "finance.records.manage", existing)) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     await db`

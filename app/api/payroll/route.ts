@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -35,6 +36,12 @@ async function tableExists(tableName: string) {
   } catch {
     return false
   }
+}
+
+// Whether the payroll record exists and its employee is inside the caller's scope
+async function payrollInScope(ctx: Parameters<typeof employeeInScope>[0], id: unknown) {
+  const [row] = await sql`SELECT employee_id FROM payroll WHERE id::text = ${String(id)}`
+  return !!row && (await employeeInScope(ctx, "payroll.cycles.prepare", row.employee_id))
 }
 
 // ---------------------------------
@@ -76,6 +83,9 @@ export async function POST(req: NextRequest) {
     if (!employee.length) {
       return withCors(req, { success: false, error: "Employee not found" }, 404)
     }
+    if (!(await employeeInScope(auth.ctx, "payroll.cycles.prepare", body.employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404)
+    }
 
     let finalAmount = body.amount
 
@@ -85,7 +95,7 @@ export async function POST(req: NextRequest) {
       const attendance = await sql`
         SELECT status FROM attendance 
         WHERE employee_code = ${body.employee_id} 
-        AND attendance_date LIKE ${`${body.year || new Date().getFullYear()}-${body.month || (new Date().getMonth() + 1).toString().padStart(2, "0")}%`}
+        AND attendance_date::text LIKE ${`${body.year || new Date().getFullYear()}-${body.month || (new Date().getMonth() + 1).toString().padStart(2, "0")}%`}
       `
       
       const presentDays = attendance.filter(a => a.status === "present" || a.status === "late").length
@@ -93,7 +103,8 @@ export async function POST(req: NextRequest) {
       const totalWorkingDays = 22 // Default working days in a month
 
       // Get basic salary
-      const salaryRecord = await sql`SELECT basic_salary FROM employee_payments WHERE employee_id = ${body.employee_id} ORDER BY created_at DESC LIMIT 1`
+      // employee_payments.employee_id is a UUID column; compare as text
+      const salaryRecord = await sql`SELECT basic_salary FROM employee_payments WHERE employee_id::text = ${body.employee_id} ORDER BY created_at DESC LIMIT 1`
       const baseSalary = salaryRecord[0] ? parseFloat((salaryRecord[0] as any).basic_salary) : 50000 // Default if not found
 
       // Calculate ratio
@@ -158,6 +169,8 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
+    // Only the payroll of employees inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "payroll.cycles.view")
 
     if (id) {
       // Fetch single payroll record by ID
@@ -169,9 +182,10 @@ export async function GET(req: NextRequest) {
         FROM payroll p
         JOIN employees e ON p.employee_id = e.id
         WHERE p.id = ${id}
+          AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       `
       if (!rows.length) {
-        return withCors(req, { success: false, error: "Payroll record not found" }, 404)
+        return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404)
       }
       return withCors(req, { success: true, data: formatDateFields(rows)[0] })
     }
@@ -188,11 +202,15 @@ export async function GET(req: NextRequest) {
         e.department
       FROM payroll p
       JOIN employees e ON p.employee_id = e.id
+      WHERE (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       ORDER BY p.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `
 
-    const countResult = await sql`SELECT COUNT(*) AS total FROM payroll`
+    const countResult = await sql`
+      SELECT COUNT(*) AS total FROM payroll p JOIN employees e ON p.employee_id = e.id
+      WHERE (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
+    `
     const total = Number(countResult?.[0]?.total ?? 0)
 
     return withCors(req, {
@@ -217,6 +235,11 @@ export async function PUT(req: NextRequest) {
 
     const body = (await req.json()) as PayrollPayload
     if (!body.id) return withCors(req, { success: false, error: "ID is required" }, 400)
+    if (!(await payrollInScope(auth.ctx, body.id))) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404)
+    // The record may only be moved to another employee inside the caller's scope
+    if (body.employee_id && !(await employeeInScope(auth.ctx, "payroll.cycles.prepare", body.employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404)
+    }
 
     const result = await sql`
       UPDATE payroll SET
@@ -250,6 +273,7 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
     if (!id) return withCors(req, { success: false, error: "ID required" }, 400)
+    if (!(await payrollInScope(auth.ctx, id))) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404)
 
     const result = await sql`DELETE FROM payroll WHERE id = ${id} RETURNING *`
     if (!result.length) return withCors(req, { success: false, error: "Not found" }, 404)

@@ -2,6 +2,8 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
+import { decisionRefusal } from "@/lib/approvals";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -22,7 +24,9 @@ export async function PUT(req: NextRequest) {
       approved_by?: string;
     };
 
-    const { id, approved_by } = body;
+    // The approver is whoever is signed in; a name in the request is ignored
+    const { id } = body;
+    const approved_by = auth.ctx.user.username;
 
     if (!id) {
       return withCors(
@@ -32,13 +36,6 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    if (!approved_by) {
-      return withCors(
-        req,
-        { success: false, error: "approved_by is required." },
-        400
-      );
-    }
 
     // Check resignation exists
     const resignation = await sql`
@@ -52,6 +49,8 @@ export async function PUT(req: NextRequest) {
         404
       );
     }
+    const refusal = await decisionRefusal(auth.ctx, "corehr.records.approve", resignation[0].employee_id);
+    if (refusal) return withCors(req, { success: false, error: refusal.error }, refusal.status);
 
     if (resignation[0].status !== "pending") {
       return withCors(
@@ -91,7 +90,7 @@ export async function PUT(req: NextRequest) {
       WHERE id = ${approved[0].employee_id}
     `;
 
-    await runAudited(req, auth.ctx, { action: "corehr.resignation.approved", targetType: "corehr.resignation", details: {} }, []);
+    await runAudited(req, auth.ctx, { action: "corehr.resignation.approved", targetType: "employee", targetId: String(approved[0].employee_id), details: { resignation_id: id } }, []);
 
     return withCors(req, {
       success: true,

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requirePermission } from "@/lib/rbac";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
+import { recordScope } from "@/lib/mda-scope";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -37,25 +38,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    let result;
-
-    // Filter with department
-    if (department) {
-      result = await sql`
-        SELECT *
-        FROM attendance
-        WHERE attendance_date BETWEEN ${start_date} AND ${end_date}
-        AND department = ${department}
-        ORDER BY attendance_date ASC
-      `;
-    } else {
-      result = await sql`
-        SELECT *
-        FROM attendance
-        WHERE attendance_date BETWEEN ${start_date} AND ${end_date}
-        ORDER BY attendance_date ASC
-      `;
-    }
+    // Only the attendance of employees inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "timesheets.attendance.view");
+    const result = await sql`
+      SELECT a.*
+      FROM attendance a
+      LEFT JOIN employees e ON e.id = a.employee_code
+      WHERE a.attendance_date BETWEEN ${start_date} AND ${end_date}
+        AND (${department}::text IS NULL OR a.department = ${department})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
+      ORDER BY a.attendance_date ASC
+    `;
 
     return withCors(req, {
       success: true,

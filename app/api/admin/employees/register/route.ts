@@ -8,6 +8,8 @@ import {
   resolveRegistrationIdInput,
 } from "@/lib/registration-id";
 import { generateRegistrationId } from "@/lib/register-utils";
+import { isApprovedApplication, submittedEmail, APPROVED_LOCKED } from "@/lib/registration-lock";
+import { registrationAccess, issueRegistrationToken, continueLink } from "@/lib/registration-token";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -239,6 +241,26 @@ export async function POST(req: NextRequest) {
       ? existingRegistration.registration_id
       : incomingId || (await generateRegistrationId());
 
+    if (existingRegistration) {
+      // An approved application is an employee record now; it is not reopened here
+      if (await isApprovedApplication(existingRegistration.registration_id)) {
+        return withCors(req, { success: false, message: APPROVED_LOCKED }, 409);
+      }
+      // Someone who only knows the IPPIS number cannot take over an application
+      // waiting for a decision by sending their own email address
+      const access = await registrationAccess(req, existingRegistration.registration_id, (body as { registration_token?: unknown }).registration_token);
+      if (!access.ok) {
+        return withCors(req, { success: false, message: access.message }, access.status);
+      }
+      const onFile = await submittedEmail(existingRegistration.registration_id);
+      if (onFile && onFile !== String(email).trim().toLowerCase()) {
+        return withCors(req, {
+          success: false,
+          message: "This application was submitted with a different email address. Use that address, or contact HR.",
+        }, 409);
+      }
+    }
+
     let registrationRow = existingRegistration;
 
     if (!registrationRow) {
@@ -281,8 +303,14 @@ export async function POST(req: NextRequest) {
       body,
     });
 
+    // A new application gets its private continue link; it goes to the
+    // applicant in this response and by email, and nowhere else
+    const registrationToken = existingRegistration ? null : await issueRegistrationToken(registrationRow.registration_id);
+
     const baseUrl = process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app";
-    const onboardingUrl = `${baseUrl}/register?email=${encodeURIComponent(email)}`;
+    const onboardingUrl = registrationToken
+      ? continueLink("register", registrationRow.registration_id, email, registrationToken)
+      : `${baseUrl}/register?email=${encodeURIComponent(email)}`;
 
     let emailSent = false;
     try {
@@ -330,6 +358,7 @@ export async function POST(req: NextRequest) {
       email_sent: emailSent,
       status: "pending_approval",
       current_step: "submitted",
+      ...(registrationToken ? { registration_token: registrationToken } : {}),
     });
   } catch (error) {
     console.error("Registration error:", error);
@@ -339,7 +368,6 @@ export async function POST(req: NextRequest) {
       {
         success: false,
         message: "Failed to process registration",
-        error: error instanceof Error ? error.message : String(error),
       },
       500
     );

@@ -72,6 +72,7 @@ export function normalizeScopeToBackend(scope?: string | null): "global" | "mda"
  * - department: company_id is NOT NULL, department_id is NOT NULL
  * - self: company_id is NULL, department_id is NULL
  */
+/** @deprecated Use scopeFromRequest in lib/role-grants.ts, which checks the MDA and department exist and refuses incomplete scopes. */
 export function resolveValidScope(
   requestedScope?: string | null,
   companyId?: number | null,
@@ -88,14 +89,16 @@ export function resolveValidScope(
     if (comp) {
       return { scope_level: "mda", company_id: comp, department_id: null };
     }
-    return { scope_level: "global", company_id: null, department_id: null };
+    // Missing organisation details narrow access, never widen it
+    return { scope_level: "self", company_id: null, department_id: null };
   }
 
   if (norm === "mda") {
     if (comp) {
       return { scope_level: "mda", company_id: comp, department_id: null };
     }
-    return { scope_level: "global", company_id: null, department_id: null };
+    // Missing organisation details narrow access, never widen it
+    return { scope_level: "self", company_id: null, department_id: null };
   }
 
   return { scope_level: norm, company_id: null, department_id: null };

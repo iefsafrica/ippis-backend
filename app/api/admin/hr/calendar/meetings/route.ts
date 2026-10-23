@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requirePermission } from "@/lib/rbac";
+import { visibleRows } from "@/lib/module-scope";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -75,6 +76,9 @@ export async function GET(req: NextRequest) {
         ORDER BY start_date ASC
       `;
     }
+
+    // Meetings of the caller's MDA or department, and those for everyone (no MDA)
+    meetings = visibleRows(auth.ctx, "calendar.events.view", meetings, true);
 
     // Map for frontend display
     const data = meetings.map((row: any) => ({

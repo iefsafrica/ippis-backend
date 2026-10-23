@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited } from "@/lib/rbac";
 import { notify } from "@/lib/employee-notifications";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
       return withCors(req, { success: false, error: `status must be one of: ${[...STATUSES, "all"].join(", ")}` }, 400);
     }
     const statuses = !status ? ["open", "in_review"] : status === "all" ? STATUSES : [status];
+    const sc = recordScope(auth.ctx, "payroll.cycles.view");
 
     const rows = await db`
       SELECT d.id, d.employee_id, e.name AS employee_name, e.department, d.payment_id, d.category, d.description,
@@ -36,6 +38,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN payroll p ON p.payment_id = d.payment_id AND p.employee_id = d.employee_id
       WHERE d.status = ANY(${statuses})
         AND (${employeeId}::text IS NULL OR d.employee_id = ${employeeId})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       ORDER BY d.created_at ASC
       LIMIT 200
     `;
@@ -63,6 +66,11 @@ export async function PATCH(req: NextRequest) {
     }
     if (status !== "in_review" && !response) {
       return withCors(req, { success: false, error: "A response is required to resolve or reject a report" }, 400);
+    }
+
+    const [owner] = await db`SELECT employee_id FROM payroll_discrepancies WHERE id = ${id}`;
+    if (!owner || !(await employeeInScope(auth.ctx, "payroll.cycles.prepare", owner.employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     const [updated] = await runAudited(

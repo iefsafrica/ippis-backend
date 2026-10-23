@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { registrationsOutOfScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -26,10 +27,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Update the document status to 'approved' for all provided IDs
+    // Only documents inside the caller's MDA or department scope are approved; the rest are reported
+    const outOfScope = await registrationsOutOfScope(auth.ctx, "employees.documents.verify", registrationIds.map(String));
+    const allowed = registrationIds.map(String).filter((id) => !outOfScope.includes(id));
+
     const updated = await sql`
       UPDATE document_uploads
       SET status = 'approved'
-      WHERE registration_id = ANY(${registrationIds}::text[])
+      WHERE registration_id = ANY(${allowed}::text[])
       RETURNING registration_id, status
     `;
 
@@ -50,7 +55,8 @@ export async function POST(req: NextRequest) {
     return withCors(req, {
       success: true,
       message: `Documents for ${updated.length} employees approved successfully`,
-      data: updated
+      data: updated,
+      skipped: outOfScope.length ? { ids: outOfScope, reason: OUT_OF_SCOPE } : undefined
     });
   } catch (error) {
     console.error("Error approving documents in bulk:", error);

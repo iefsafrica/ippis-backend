@@ -3,6 +3,9 @@ import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
+import { isApprovedApplication, APPROVED_LOCKED } from "@/lib/registration-lock";
+import { registrationAccess } from "@/lib/registration-token";
+
 const sql = neon(process.env.DATABASE_URL!);
 
 // Vercel Blob Token
@@ -67,6 +70,13 @@ export async function POST(req: NextRequest) {
         error: `Invalid registration_id: ${registrationId} does not exist in registrations table`,
       }, 400);
     }
+    if (await isApprovedApplication(registrationId)) {
+      return withCors(req, { success: false, error: APPROVED_LOCKED }, 409);
+    }
+    const access = await registrationAccess(req, registrationId, formData.get("registration_token"));
+    if (!access.ok) {
+      return withCors(req, { success: false, error: access.message }, access.status);
+    }
 
     // Upload files to Blob storage
     const appointmentLetterFile = formData.get("appointment_letter_path") as File;
@@ -84,7 +94,8 @@ export async function POST(req: NextRequest) {
     const promotionLetterUrl = promotionLetterFile ? await uploadToBlob(promotionLetterFile, `${registrationId}-promotion-letter-${promotionLetterFile.name}`) : null;
     const otherDocumentsUrl = otherDocumentsFile ? await uploadToBlob(otherDocumentsFile, `${registrationId}-other-documents-${otherDocumentsFile.name}`) : null;
 
-    const status = formData.get("status")?.toString() || "pending";
+    // Uploads always wait for HR to review them, whatever the form says
+    const status = "pending";
     const uploadDate = new Date().toISOString();
 
     // Insert into document_uploads
@@ -123,7 +134,6 @@ export async function POST(req: NextRequest) {
     return withCors(req, {
       success: false,
       error: "Failed to upload documents",
-      details: error instanceof Error ? error.message : String(error),
     }, 500);
   }
 }

@@ -4,6 +4,7 @@ import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited, readReason } from "@/lib/rbac";
 import { shiftFor, arrivalStatus } from "@/lib/employee-attendance";
 import { notify } from "@/lib/employee-notifications";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ export async function GET(req: NextRequest) {
       return withCors(req, { success: false, error: `status must be one of: ${[...STATUSES, "all"].join(", ")}` }, 400);
     }
     const filter = status === "all" ? null : status;
+    const sc = recordScope(auth.ctx, "timesheets.attendance.view");
 
     const rows = await db`
       SELECT c.id, c.employee_id, e.name AS employee_name, e.department, c.attendance_date::text AS attendance_date,
@@ -43,6 +45,7 @@ export async function GET(req: NextRequest) {
       ) a ON TRUE
       WHERE (${filter}::text IS NULL OR c.status = ${filter})
         AND (${employeeId}::text IS NULL OR c.employee_id = ${employeeId})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       ORDER BY c.created_at ASC
       LIMIT 200
     `;
@@ -77,7 +80,9 @@ export async function PATCH(req: NextRequest) {
       WHERE c.id = ${id}
     `;
     const c = rows[0];
-    if (!c) return withCors(req, { success: false, error: "Correction not found" }, 404);
+    if (!c || !(await employeeInScope(auth.ctx, "timesheets.attendance.manage", c.employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
     if (c.status !== "pending") return withCors(req, { success: false, error: `This correction is already ${c.status}` }, 409);
 
     const outcome = body.decision === "approve" ? "approved" : "rejected";

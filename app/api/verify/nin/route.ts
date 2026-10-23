@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { withCors, handleOptions } from "@/lib/cors";
 import { verifyNIN } from "@/lib/verification-service";
 import { generateRegistrationId } from "@/lib/register-utils";
+import { issueRegistrationToken } from "@/lib/registration-token";
 
 export const dynamic = "force-dynamic";
 
@@ -70,10 +71,19 @@ export async function POST(req: NextRequest) {
     await upsertVerificationData(registrationPk, nin, verification.data);
   }
 
+  // Only the person who starts an application gets its continue token. For an
+  // application that already exists, knowing the NIN is not enough to continue it.
+  const registrationToken = registration.created ? await issueRegistrationToken(registration.registration_id) : null;
+
   return withCors(req, {
     success: true,
     verified: verification.verified,
     registration_id: registration.registration_id,
+    ...(registrationToken ? { registration_token: registrationToken } : {}),
+    ...(registration.created ? {} : {
+      existing_application: true,
+      continue_message: "An application already exists for this NIN. Continue it with the link sent to your email, or ask for a new link.",
+    }),
     message: verification.verified
       ? verification.message || "NIN verified successfully"
       : verification.message || "NIN not verified. Continue manually.",
@@ -84,7 +94,7 @@ export async function POST(req: NextRequest) {
 async function findOrCreateRegistration(
   nin: string,
   shouldStoreNin: boolean
-): Promise<RegistrationRow> {
+): Promise<RegistrationRow & { created?: boolean }> {
   const existing = await sql`
     SELECT id, registration_id
     FROM registrations
@@ -117,7 +127,7 @@ async function findOrCreateRegistration(
     RETURNING id, registration_id
   ` as RegistrationRow[];
 
-  return inserted[0]!;
+  return { ...inserted[0]!, created: true };
 }
 
 async function upsertVerificationData(

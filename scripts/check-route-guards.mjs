@@ -38,6 +38,7 @@ const PUBLIC = {
   "POST /api/admin/employees/register/personal": "public registration",
   "POST /api/admin/employees/register/employment": "public registration",
   "POST /api/admin/employees/register/document-Upload": "public registration",
+  "POST /api/admin/employees/register/resume-link": "applicant asks for a new continue link, sent only to the email on the application",
   "POST /api/admin/documents/upload": "public registration",
   "GET /api/admin/documents/status/[id]": "applicant checks own documents",
   "GET /api/track": "applicant tracks own registration",

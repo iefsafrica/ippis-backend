@@ -2,7 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
-import { headers } from "next/headers";
+import { employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -17,9 +17,8 @@ export async function PATCH(req: NextRequest) {
     const auth = await requirePermission(req, "corehr.records.manage");
     if (!auth.ok) return auth.response;
 
-    //  FIX: headers() is async in Edge Runtime
-    const h = await headers();
-    const employee_id = h.get("x-nextjs-param-employee_id");
+    // The employee id is the last segment of the path
+    const employee_id = decodeURIComponent(req.nextUrl.pathname.split("/").filter(Boolean).pop() ?? "");
 
     if (!employee_id) {
       return withCors(
@@ -27,6 +26,10 @@ export async function PATCH(req: NextRequest) {
         { success: false, error: "Missing employee_id parameter." },
         400
       );
+    }
+
+    if (!(await employeeInScope(auth.ctx, "corehr.records.manage", employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     const allowedFields = ["name", "email", "department", "position", "status"];

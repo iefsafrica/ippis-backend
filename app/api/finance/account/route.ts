@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, placementFor, placementOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +62,10 @@ export async function POST(req: NextRequest) {
       }, 400);
     }
 
+    // The account belongs to an MDA inside the caller's scope
+    const placed = await placementFor(auth.ctx, "finance.records.manage", body as Record<string, unknown>);
+    if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status);
+
     const accountId = `ACC-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 
     const result = await db`
@@ -68,13 +73,13 @@ export async function POST(req: NextRequest) {
         account_id, account_name, account_number, bank_name,
         account_type, currency, balance, opening_date,
         status, branch_code, swift_code, description,
-        created_at, updated_at
+        company_id, department_id, created_at, updated_at
       )
       VALUES (
         ${accountId}, ${account_name}, ${account_number}, ${bank_name},
         ${account_type}, ${currency ?? "NGN"}, ${balance ?? 0}, ${opening_date ?? null},
         ${status ?? "Active"}, ${branch_code ?? null}, ${swift_code ?? null}, ${description ?? null},
-        NOW(), NOW()
+        ${placed.placement.companyId}, ${placed.placement.departmentId}, NOW(), NOW()
       )
       RETURNING *
     `;
@@ -107,13 +112,16 @@ export async function GET(req: NextRequest) {
     const limit = Number(searchParams.get("limit") || "10");
     const offset = (page - 1) * limit;
 
+    // Only the accounts of the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "finance.records.view");
     const result = await db`
-      SELECT * FROM finance_accounts
-      ORDER BY created_at DESC
+      SELECT * FROM finance_accounts a
+      WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
+      ORDER BY a.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const count = await db`SELECT COUNT(*) FROM finance_accounts`;
+    const count = await db`SELECT COUNT(*) FROM finance_accounts a WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))`;
 
     return withCors(req, {
       success: true,
@@ -156,14 +164,17 @@ export async function PATCH(req: NextRequest) {
       SELECT * FROM finance_accounts WHERE account_id = ${body.account_id}
     `;
 
-    const existing = existingRes[0];
+    const existing = existingRes[0]!;
 
-    if (!existing) {
+    if (!canChange(auth.ctx, "finance.records.manage", existing)) {
       return withCors(req, {
         success: false,
-        error: "Account not found"
+        error: OUT_OF_SCOPE
       }, 404);
     }
+    // Moving the account to another MDA needs authority over the destination
+    const placed = await placementFor(auth.ctx, "finance.records.manage", body as Record<string, unknown>, placementOf(existing));
+    if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status);
 
     const result = await db`
       UPDATE finance_accounts
@@ -179,6 +190,8 @@ export async function PATCH(req: NextRequest) {
         branch_code = ${body.branch_code ?? existing.branch_code},
         swift_code = ${body.swift_code ?? existing.swift_code},
         description = ${body.description ?? existing.description},
+        company_id = ${placed.placement.companyId},
+        department_id = ${placed.placement.departmentId},
         updated_at = NOW()
       WHERE account_id = ${body.account_id}
       RETURNING *
@@ -215,6 +228,11 @@ export async function DELETE(req: NextRequest) {
         success: false,
         error: "account_id is required"
       }, 400);
+    }
+
+    const [existing] = await db`SELECT company_id, department_id FROM finance_accounts WHERE account_id = ${accountId}`;
+    if (!canChange(auth.ctx, "finance.records.manage", existing)) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     await db`

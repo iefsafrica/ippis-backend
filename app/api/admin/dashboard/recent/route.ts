@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { authenticate } from "@/lib/rbac";
+import { recordScope } from "@/lib/mda-scope";
 import { neon } from "@neondatabase/serverless";
 import { format } from "date-fns";
 import { withCors, handleOptions } from "@/lib/cors"; 
@@ -12,7 +13,7 @@ export async function OPTIONS(req: NextRequest) {
 // ? Main GET request handler
 export async function GET(req: NextRequest) {
   try {
-    // Any signed-in admin; figures are not yet limited to the caller's MDA
+    // Any signed-in admin; lists only records inside the caller's scope (DSH-02)
     const auth = await authenticate(req);
     if (!auth.ok) return auth.response;
 
@@ -29,42 +30,34 @@ export async function GET(req: NextRequest) {
 
     if (tablesExist) {
       if (type === "recent") {
-        // ? Recently registered employees
-        const query = `
-          SELECT 
-            id, 
-            CONCAT(first_name, ' ', last_name) AS name, 
-            email, 
-            department, 
-            status, 
-            created_at AS date
-          FROM employees
-          WHERE status != 'deleted'
-          ORDER BY created_at DESC
-          LIMIT $1
+        // Recently registered employees inside the caller's scope
+        const sc = recordScope(auth.ctx, "employees.records.view");
+        const result = await sql`
+          SELECT e.id, e.name, e.email, e.department, e.status, e.created_at AS date
+          FROM employees e
+          WHERE e.status <> 'deleted'
+            AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
+          ORDER BY e.created_at DESC
+          LIMIT ${limit}
         `;
-        const result = await sql.query(query, [limit]);
 
         data = result.map((row: any) => ({
           ...row,
           date: format(new Date(row.date), "MMM d, yyyy"),
         }));
       } else if (type === "pending") {
-        // ? Pending employees
-        const query = `
-          SELECT 
-            id, 
-            CONCAT(first_name, ' ', last_name) AS name, 
-            email, 
-            department, 
-            status, 
-            created_at AS date
-          FROM pending_employees
-          WHERE status = 'pending_approval'
-          ORDER BY created_at DESC
-          LIMIT $1
+        // Pending registrations inside the caller's scope
+        const sc = recordScope(auth.ctx, "employees.registrations.view");
+        const result = await sql`
+          SELECT p.id, CONCAT(p.firstname, ' ', p.surname) AS name, p.email, p.department, p.status,
+                 p.created_at AS date
+          FROM pending_employees p
+          LEFT JOIN employment_info ei ON ei.registration_id = p.registration_id
+          WHERE p.status = 'pending_approval'
+            AND (${sc.all}::boolean OR ei.company_id = ANY(${sc.companyIds}::int[]) OR ei.department_id = ANY(${sc.departmentIds}::int[]))
+          ORDER BY p.created_at DESC
+          LIMIT ${limit}
         `;
-        const result = await sql.query(query, [limit]);
 
         data = result.map((row: any) => ({
           ...row,
@@ -96,29 +89,11 @@ export async function GET(req: NextRequest) {
 // ? Helper: Check if required tables exist
 async function checkTablesExist(sql: any) {
   try {
-    const query = `
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'employees'
-      ) AS employees_exist,
-      EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'pending_employees'
-      ) AS pending_employees_exist
+    const [row] = await sql`
+      SELECT to_regclass('public.employees') IS NOT NULL AS employees_exist,
+             to_regclass('public.pending_employees') IS NOT NULL AS pending_employees_exist
     `;
-
-    const result = await sql.query(query);
-
-    if (!result || !result.rows) {
-      console.warn("Unexpected query result format:", result);
-      return false;
-    }
-
-    if (result.rows.length === 0) return false;
-
-    const { employees_exist, pending_employees_exist } = result.rows[0];
-
-    return employees_exist || pending_employees_exist;
+    return Boolean(row?.employees_exist || row?.pending_employees_exist);
   } catch (error) {
     console.error("Error checking tables:", error);
     return false;

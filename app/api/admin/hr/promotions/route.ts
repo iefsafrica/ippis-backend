@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,11 @@ export async function POST(req: NextRequest) {
         },
         400
       );
+    }
+
+    // The employee must exist and be inside the caller's MDA or department
+    if (!(await employeeInScope(auth.ctx, "corehr.records.manage", employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     // Ensure promotions table exists

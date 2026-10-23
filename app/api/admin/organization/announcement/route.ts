@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { resolveMda, managesMda, mdaIdOf } from "@/lib/organisation";
 import { neon } from '@neondatabase/serverless';
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -60,13 +61,15 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
+    const mdaParam = searchParams.get('company_id') || searchParams.get('mda_id');
+    const mdaFilter = mdaParam && Number.isInteger(Number(mdaParam)) ? Number(mdaParam) : null;
 
     if (id) {
       const result = await sql`
         SELECT a.*, c.name AS company_name
         FROM announcements a
         LEFT JOIN companies c
-          ON a.company_code = c.company_code
+          ON c.id = a.company_id OR (a.company_id IS NULL AND TRIM(c.company_code) = TRIM(a.company_code))
         WHERE a.id = ${id}
       `;
 
@@ -85,8 +88,9 @@ export async function GET(req: NextRequest) {
       SELECT a.*, c.name AS company_name
       FROM announcements a
       LEFT JOIN companies c
-        ON a.company_code = c.company_code
-      ORDER BY a.created_at DESC
+        ON c.id = a.company_id OR (a.company_id IS NULL AND TRIM(c.company_code) = TRIM(a.company_code))
+      WHERE (${mdaFilter}::int IS NULL OR a.company_id = ${mdaFilter})
+    ORDER BY a.created_at DESC
     `;
 
     return withCors(req, {
@@ -121,33 +125,28 @@ export async function POST(req: NextRequest) {
       expiry_date
     } = body;
 
-    if (!company_code || !title || !content) {
+    if (!title || !content) {
       return withCors(
         req,
-        { success: false, message: 'company_code, title and content are required' },
+        { success: false, message: 'title and content are required' },
         400
       );
     }
 
-    // Validate company exists
-    const company = await sql`
-      SELECT company_code FROM companies
-      WHERE TRIM(company_code) = TRIM(${company_code})
-    `;
-
-    if (!company.length) {
-      return withCors(
-        req,
-        { success: false, message: 'Invalid company_code provided' },
-        400
-      );
+    // The MDA, by company_id or company_code; stored by both
+    const mda = await resolveMda(body as any);
+    if ("error" in mda) {
+      return withCors(req, { success: false, message: mda.error }, mda.status);
+    }
+    if (!managesMda(auth.ctx, mda.company.id)) {
+      return withCors(req, { success: false, message: 'This MDA is outside your scope' }, 403);
     }
 
     const result = await sql`
       INSERT INTO announcements
-        (company_code, title, content, audience, status, publish_date, expiry_date, created_at)
+        (company_id, company_code, title, content, audience, status, publish_date, expiry_date, created_at)
       VALUES
-        (${company_code},
+        (${mda.company.id}, ${mda.company.company_code},
          ${title},
          ${content},
          ${audience ?? 'all'},
@@ -198,6 +197,11 @@ export async function PUT(req: NextRequest) {
         { success: false, message: 'Announcement ID is required' },
         400
       );
+    }
+
+    const owner = await sql`SELECT * FROM announcements WHERE id = ${id}`;
+    if (owner[0] && !managesMda(auth.ctx, await mdaIdOf(owner[0]))) {
+      return withCors(req, { success: false, message: 'This record belongs to an MDA outside your scope' }, 403);
     }
 
     const result = await sql`
@@ -254,6 +258,11 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
+    const owner = await sql`SELECT * FROM announcements WHERE id = ${id}`;
+    if (owner[0] && !managesMda(auth.ctx, await mdaIdOf(owner[0]))) {
+      return withCors(req, { success: false, message: 'This record belongs to an MDA outside your scope' }, 403);
+    }
+
     const result = await sql`
       DELETE FROM announcements
       WHERE id = ${id}
@@ -277,6 +286,9 @@ export async function DELETE(req: NextRequest) {
     }, 200);
 
   } catch (error) {
+    if ((error as any)?.code === '23503') {
+      return withCors(req, { success: false, message: 'This record is still in use elsewhere (for example by performance records), so it cannot be deleted. Set it to inactive instead.' }, 409);
+    }
     console.error('Announcement DELETE error:', error);
     return withCors(req, { success: false, message: 'Failed to delete announcement' }, 500);
   }

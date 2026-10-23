@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { recordScope, employeeInScope, departmentInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 import { withCors, handleOptions } from "@/lib/cors";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -47,6 +48,12 @@ type UpdateAppraiserBody = {
 // =========================
 // CORS preflight
 // =========================
+// Whether the appraisal exists and its employee is inside the caller's scope
+async function appraisalInScope(ctx: Parameters<typeof employeeInScope>[0], id: unknown) {
+  const [row] = await sql`SELECT employee_id FROM performance_appraisers WHERE id::text = ${String(id)}`;
+  return !!row && (await employeeInScope(ctx, "performance.records.manage", row.employee_id));
+}
+
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
 }
@@ -61,6 +68,8 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    // Only the appraisals of employees inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "performance.records.view");
 
     if (id) {
       const result = await sql`
@@ -68,10 +77,12 @@ export async function GET(req: NextRequest) {
         FROM performance_appraisers pa
         LEFT JOIN departments d ON pa.department_id = d.id
         LEFT JOIN designations des ON pa.designation_id = des.id
+        LEFT JOIN employees e ON e.id = pa.employee_id
         WHERE pa.id = ${id}
+          AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       `;
       if (!result.length)
-        return withCors(req, { success: false, message: "Appraiser not found" }, 404);
+        return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
 
       return withCors(req, { success: true, data: result[0] });
     }
@@ -81,6 +92,8 @@ export async function GET(req: NextRequest) {
       FROM performance_appraisers pa
       LEFT JOIN departments d ON pa.department_id = d.id
       LEFT JOIN designations des ON pa.designation_id = des.id
+      LEFT JOIN employees e ON e.id = pa.employee_id
+      WHERE (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       ORDER BY pa.created_at DESC
     `;
 
@@ -105,11 +118,14 @@ export async function POST(req: NextRequest) {
     if (!employee_id || !department_id || !designation_id || !appraisal_date)
       return withCors(req, { success: false, message: "employee_id, department_id, designation_id and appraisal_date are required" }, 400);
 
+    if (!(await employeeInScope(auth.ctx, "performance.records.manage", employee_id)) || !(await departmentInScope(auth.ctx, "performance.records.manage", department_id)))
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
+
     const inserted = await sql`
       INSERT INTO performance_appraisers
         (employee_id, department_id, designation_id, appraisal_date, status, rating, remarks, added_by, created_at, updated_at)
       VALUES
-        (${employee_id}, ${department_id}, ${designation_id}, ${appraisal_date}, ${status ?? 'scheduled'}, ${rating ?? null}, ${remarks ?? null}, ${added_by ?? null}, NOW(), NOW())
+        (${employee_id}, ${department_id}, ${designation_id}, ${appraisal_date}, ${status ?? 'scheduled'}, ${rating ?? null}, ${remarks ?? null}, ${auth.ctx.user.username}, NOW(), NOW())
       RETURNING *
     `;
 
@@ -136,6 +152,14 @@ export async function PUT(req: NextRequest) {
 
     if (!id)
       return withCors(req, { success: false, message: "Appraiser ID is required" }, 400);
+
+    // The appraisal, and any employee or department it is moved to, must be inside the caller's scope
+    if (
+      !(await appraisalInScope(auth.ctx, id)) ||
+      (employee_id && !(await employeeInScope(auth.ctx, "performance.records.manage", employee_id))) ||
+      (department_id && !(await departmentInScope(auth.ctx, "performance.records.manage", department_id)))
+    )
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
 
     const updated = await sql`
       UPDATE performance_appraisers
@@ -178,6 +202,9 @@ export async function DELETE(req: NextRequest) {
 
     if (!id)
       return withCors(req, { success: false, message: "Appraiser ID is required" }, 400);
+
+    if (!(await appraisalInScope(auth.ctx, id)))
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
 
     const deleted = await sql`DELETE FROM performance_appraisers WHERE id = ${id} RETURNING *`;
 

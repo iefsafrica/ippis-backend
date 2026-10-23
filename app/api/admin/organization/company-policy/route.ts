@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { resolveMda, managesMda, mdaIdOf } from "@/lib/organisation";
 import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -47,13 +48,15 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
+    const mdaParam = searchParams.get('company_id') || searchParams.get('mda_id');
+    const mdaFilter = mdaParam && Number.isInteger(Number(mdaParam)) ? Number(mdaParam) : null;
 
     if (id) {
       const result = await sql`
         SELECT p.*, c.name AS company_name
         FROM company_policies p
         LEFT JOIN companies c
-          ON p.company_code = c.company_code
+          ON c.id = p.company_id OR (p.company_id IS NULL AND TRIM(c.company_code) = TRIM(p.company_code))
         WHERE p.id = ${id}
       `;
       const policy = result.at(0);
@@ -69,8 +72,9 @@ export async function GET(req: NextRequest) {
       SELECT p.*, c.name AS company_name
       FROM company_policies p
       LEFT JOIN companies c
-        ON p.company_code = c.company_code
-      ORDER BY p.created_at DESC
+        ON c.id = p.company_id OR (p.company_id IS NULL AND TRIM(c.company_code) = TRIM(p.company_code))
+      WHERE (${mdaFilter}::int IS NULL OR p.company_id = ${mdaFilter})
+    ORDER BY p.created_at DESC
     `;
 
     return NextResponse.json({ success: true, message: 'Policies retrieved successfully', data: allPolicies });
@@ -92,20 +96,24 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as CreateCompanyPolicyBody;
     const { company_code, title, content, status, publish_date, expiry_date } = body;
 
-    if (!company_code || !title || !content) {
-      return NextResponse.json({ success: false, message: 'company_code, title, and content are required' }, { status: 400 });
+    if (!title || !content) {
+      return NextResponse.json({ success: false, message: 'title and content are required' }, { status: 400 });
     }
 
-    const company = await sql`SELECT company_code FROM companies WHERE TRIM(company_code) = TRIM(${company_code})`;
-    if (!company.length) {
-      return NextResponse.json({ success: false, message: 'Invalid company_code provided' }, { status: 400 });
+    // The MDA, by company_id or company_code; stored by both
+    const mda = await resolveMda(body as any);
+    if ("error" in mda) {
+      return NextResponse.json({ success: false, message: mda.error }, { status: mda.status });
+    }
+    if (!managesMda(auth.ctx, mda.company.id)) {
+      return NextResponse.json({ success: false, message: 'This MDA is outside your scope' }, { status: 403 });
     }
 
     const result = await sql`
       INSERT INTO company_policies
-        (company_code, title, content, status, publish_date, expiry_date, created_at)
+        (company_id, company_code, title, content, status, publish_date, expiry_date, created_at)
       VALUES
-        (${company_code}, ${title}, ${content}, ${status ?? 'draft'}, ${publish_date ?? null}, ${expiry_date ?? null}, NOW())
+        (${mda.company.id}, ${mda.company.company_code}, ${title}, ${content}, ${status ?? 'draft'}, ${publish_date ?? null}, ${expiry_date ?? null}, NOW())
       RETURNING *
     `;
 
@@ -132,6 +140,11 @@ export async function PUT(req: NextRequest) {
 
     if (!id) {
       return NextResponse.json({ success: false, message: 'Policy ID is required' }, { status: 400 });
+    }
+
+    const owner = await sql`SELECT * FROM company_policies WHERE id = ${id}`;
+    if (owner[0] && !managesMda(auth.ctx, await mdaIdOf(owner[0]))) {
+      return NextResponse.json({ success: false, message: 'This record belongs to an MDA outside your scope' }, { status: 403 });
     }
 
     const result = await sql`
@@ -175,6 +188,11 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Policy ID is required' }, { status: 400 });
     }
 
+    const owner = await sql`SELECT * FROM company_policies WHERE id = ${id}`;
+    if (owner[0] && !managesMda(auth.ctx, await mdaIdOf(owner[0]))) {
+      return NextResponse.json({ success: false, message: 'This record belongs to an MDA outside your scope' }, { status: 403 });
+    }
+
     const result = await sql`DELETE FROM company_policies WHERE id = ${id} RETURNING *`;
     if (!result.length) {
       return NextResponse.json({ success: false, message: 'Company policy not found' }, { status: 404 });
@@ -185,6 +203,9 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true, message: 'Policy deleted successfully', data: result.at(0) });
 
   } catch (error) {
+    if ((error as any)?.code === '23503') {
+      return NextResponse.json({ success: false, message: 'This record is still in use elsewhere (for example by performance records), so it cannot be deleted. Set it to inactive instead.' }, { status: 409 });
+    }
     console.error('CompanyPolicy DELETE error:', error);
     return NextResponse.json({ success: false, message: 'Failed to delete policy' }, { status: 500 });
   }

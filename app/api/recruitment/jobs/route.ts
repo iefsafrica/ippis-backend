@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, placementFor, placementOf, parentOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { z } from "zod";
@@ -43,6 +44,9 @@ export async function POST(req: NextRequest) {
     const rawBody = await req.json();
 
     const body = JobSchema.parse(rawBody);
+    // The job post belongs to an MDA inside the caller's scope
+    const placed = await placementFor(auth.ctx, "recruitment.records.manage", rawBody as Record<string, unknown>);
+    if (!placed.ok) return withCors(req, { success: false, message: placed.error }, placed.status);
 
     const result = await sql`
       INSERT INTO job_posts (
@@ -58,7 +62,9 @@ export async function POST(req: NextRequest) {
         salary_range,
         job_description,
         requirements,
-        responsibilities
+        responsibilities,
+        company_id,
+        department_id
       )
       VALUES (
         ${body.job_title},
@@ -73,7 +79,9 @@ export async function POST(req: NextRequest) {
         ${body.salary_range},
         ${body.job_description ?? null},
         ${body.requirements},
-        ${body.responsibilities}
+        ${body.responsibilities},
+        ${placed.placement.companyId},
+        ${placed.placement.departmentId}
       )
       RETURNING *
     `;
@@ -108,15 +116,17 @@ export async function GET(req: NextRequest) {
     const id = searchParams.get("id");
     const status = searchParams.get("status");
     const search = searchParams.get("search");
+    // Only the job posts of the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "recruitment.records.view");
 
     /* -------- SINGLE JOB -------- */
     if (id) {
       const result = await sql`
-        SELECT * FROM job_posts WHERE id = ${id}
+        SELECT * FROM job_posts j WHERE j.id = ${id} AND (${sc.all}::boolean OR j.company_id = ANY(${sc.companyIds}::int[]) OR j.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND j.company_id IS NULL))
       `;
 
       if (result.length === 0) {
-        return withCors(req, { success: false, message: "Job not found" }, 404);
+        return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
       }
 
       return withCors(req, {
@@ -127,12 +137,11 @@ export async function GET(req: NextRequest) {
 
     /* -------- FILTERED JOBS -------- */
     const jobs = await sql`
-      SELECT * FROM job_posts
-      WHERE
-        (${status ? sql`status = ${status}` : sql`TRUE`})
-        AND
-        (${search ? sql`job_title ILIKE ${"%" + search + "%"}` : sql`TRUE`})
-      ORDER BY created_at DESC
+      SELECT * FROM job_posts j
+      WHERE (${status}::text IS NULL OR j.status = ${status})
+        AND (${search ? "%" + search + "%" : null}::text IS NULL OR j.job_title ILIKE ${search ? "%" + search + "%" : null})
+        AND (${sc.all}::boolean OR j.company_id = ANY(${sc.companyIds}::int[]) OR j.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND j.company_id IS NULL))
+      ORDER BY j.created_at DESC
     `;
 
     return withCors(req, {
@@ -166,6 +175,12 @@ export async function PUT(req: NextRequest) {
 
     const rawBody = await req.json();
     const body = JobSchema.parse(rawBody);
+    const existing = await parentOf("job", id);
+    if (!canChange(auth.ctx, "recruitment.records.manage", existing)) {
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
+    }
+    const placed = await placementFor(auth.ctx, "recruitment.records.manage", rawBody as Record<string, unknown>, placementOf(existing));
+    if (!placed.ok) return withCors(req, { success: false, message: placed.error }, placed.status);
 
     const result = await sql`
       UPDATE job_posts SET
@@ -182,6 +197,8 @@ export async function PUT(req: NextRequest) {
         job_description = ${body.job_description ?? null},
         requirements = ${body.requirements},
         responsibilities = ${body.responsibilities},
+        company_id = ${placed.placement.companyId},
+        department_id = ${placed.placement.departmentId},
         updated_at = NOW()
       WHERE id = ${id}
       RETURNING *
@@ -221,6 +238,9 @@ export async function DELETE(req: NextRequest) {
 
     if (!id) {
       return withCors(req, { success: false, message: "Job ID is required" }, 400);
+    }
+    if (!canChange(auth.ctx, "recruitment.records.manage", await parentOf("job", id))) {
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
     }
 
     const result = await sql`

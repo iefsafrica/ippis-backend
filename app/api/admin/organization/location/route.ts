@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { resolveMda, managesMda, mdaIdOf } from "@/lib/organisation";
 import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -47,13 +48,15 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
+    const mdaParam = searchParams.get('company_id') || searchParams.get('mda_id');
+    const mdaFilter = mdaParam && Number.isInteger(Number(mdaParam)) ? Number(mdaParam) : null;
 
     if (id) {
       const result = await sql`
         SELECT l.*, c.name AS company_name
         FROM locations l
         LEFT JOIN companies c
-          ON l.company_code = c.company_code
+          ON c.id = l.company_id OR (l.company_id IS NULL AND TRIM(c.company_code) = TRIM(l.company_code))
         WHERE l.id = ${id}
       `;
       const location = result.at(0) as Location | undefined;
@@ -69,8 +72,9 @@ export async function GET(req: NextRequest) {
       SELECT l.*, c.name AS company_name
       FROM locations l
       LEFT JOIN companies c
-        ON l.company_code = c.company_code
-      ORDER BY l.created_at DESC
+        ON c.id = l.company_id OR (l.company_id IS NULL AND TRIM(c.company_code) = TRIM(l.company_code))
+      WHERE (${mdaFilter}::int IS NULL OR l.company_id = ${mdaFilter})
+    ORDER BY l.created_at DESC
     `;
 
     return NextResponse.json({ success: true, message: 'Locations retrieved successfully', data: allLocations });
@@ -92,25 +96,24 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as CreateLocationBody;
     const { name, company_code, address, city, state, country, status } = body;
 
-    if (!name || !company_code) {
-      return NextResponse.json({ success: false, message: 'Location name and company_code are required' }, { status: 400 });
+    if (!name) {
+      return NextResponse.json({ success: false, message: 'Location name is required' }, { status: 400 });
     }
 
-    // Verify the company exists
-    const companyExists = await sql`
-      SELECT company_code
-      FROM companies
-      WHERE TRIM(company_code) = TRIM(${company_code})
-    `;
-    if (!companyExists.length) {
-      return NextResponse.json({ success: false, message: 'Invalid company_code provided' }, { status: 400 });
+    // The MDA, by company_id or company_code; stored by both
+    const mda = await resolveMda(body as any);
+    if ("error" in mda) {
+      return NextResponse.json({ success: false, message: mda.error }, { status: mda.status });
+    }
+    if (!managesMda(auth.ctx, mda.company.id)) {
+      return NextResponse.json({ success: false, message: 'This MDA is outside your scope' }, { status: 403 });
     }
 
     const result = await sql`
       INSERT INTO locations
-        (company_code, name, address, city, state, country, status, created_at)
+        (company_id, company_code, name, address, city, state, country, status, created_at)
       VALUES
-        (${company_code}, ${name}, ${address ?? null}, ${city ?? null}, ${state ?? null}, ${country ?? null}, ${status ?? 'active'}, NOW())
+        (${mda.company.id}, ${mda.company.company_code}, ${name}, ${address ?? null}, ${city ?? null}, ${state ?? null}, ${country ?? null}, ${status ?? 'active'}, NOW())
       RETURNING *
     `;
     const location = result.at(0) as Location | undefined;
@@ -142,6 +145,11 @@ export async function PUT(req: NextRequest) {
 
     if (!id) {
       return NextResponse.json({ success: false, message: 'Location ID is required' }, { status: 400 });
+    }
+
+    const owner = await sql`SELECT * FROM locations WHERE id = ${id}`;
+    if (owner[0] && !managesMda(auth.ctx, await mdaIdOf(owner[0]))) {
+      return NextResponse.json({ success: false, message: 'This record belongs to an MDA outside your scope' }, { status: 403 });
     }
 
     const result = await sql`
@@ -187,6 +195,11 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Location ID is required' }, { status: 400 });
     }
 
+    const owner = await sql`SELECT * FROM locations WHERE id = ${id}`;
+    if (owner[0] && !managesMda(auth.ctx, await mdaIdOf(owner[0]))) {
+      return NextResponse.json({ success: false, message: 'This record belongs to an MDA outside your scope' }, { status: 403 });
+    }
+
     const result = await sql`DELETE FROM locations WHERE id = ${id} RETURNING *`;
     const location = result.at(0) as Location | undefined;
 
@@ -199,6 +212,9 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true, message: 'Location deleted successfully', data: location });
 
   } catch (error) {
+    if ((error as any)?.code === '23503') {
+      return NextResponse.json({ success: false, message: 'This record is still in use elsewhere (for example by performance records), so it cannot be deleted. Set it to inactive instead.' }, { status: 409 });
+    }
     console.error('Location DELETE error:', error);
     return NextResponse.json({ success: false, message: 'Failed to delete location' }, { status: 500 });
   }

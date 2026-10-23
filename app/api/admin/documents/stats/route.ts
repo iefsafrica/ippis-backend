@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission } from "@/lib/rbac"
+import { recordScope } from "@/lib/mda-scope"
 
 export const dynamic = "force-dynamic"
 const sql = neon(process.env.DATABASE_URL!)
@@ -18,13 +19,17 @@ export async function GET(req: NextRequest) {
     if (!auth.ok) return auth.response
 
     // Count documents by status
+    const sc = recordScope(auth.ctx, "employees.documents.view")
     const result = await sql`
       SELECT 
-        status,
+        du.status,
         COUNT(*) AS total
-      FROM document_uploads
-      WHERE status IN ('verified', 'approved')
-      GROUP BY status
+      FROM document_uploads du
+      LEFT JOIN employees emp ON emp.registration_id = du.registration_id
+      LEFT JOIN employment_info ei ON ei.registration_id = du.registration_id
+      WHERE du.status IN ('verified', 'approved')
+        AND (${sc.all}::boolean OR COALESCE(emp.company_id, ei.company_id) = ANY(${sc.companyIds}::int[]) OR COALESCE(emp.department_id, ei.department_id) = ANY(${sc.departmentIds}::int[]))
+      GROUP BY du.status
     `
 
     // Calculate totals

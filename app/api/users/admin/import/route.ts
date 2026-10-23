@@ -3,9 +3,10 @@ import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import Papa from "papaparse";
 import bcrypt from "bcryptjs";
-import { requirePermission, runAudited } from "@/lib/rbac";
-import { normalizeScopeToBackend, resolveValidScope } from "@/lib/user-management";
+import { requirePermission, runAudited, covers, type Scope } from "@/lib/rbac";
 import { sendEmployeeCredentialsEmail } from "@/lib/email";
+import { checkRoleAssignment, scopeFromRequest } from "@/lib/role-grants";
+import { generateTemporaryPassword } from "@/lib/password-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,9 @@ interface IncomingRow {
   department_name?: string;
   scope_level: string;
   status: string;
+  // Resolved during validation; a row is imported exactly as resolved here
+  resolved_scope: Scope | null;
+  role_ids: number[];
   valid: boolean;
   errors: string[];
   warnings: string[];
@@ -85,6 +89,8 @@ export async function POST(req: NextRequest) {
     const fileUsernames = new Set<string>();
     const fileEmails = new Set<string>();
     const fileStaffIds = new Set<string>();
+    // The same role and scope combination is checked once per file
+    const roleChecks = new Map<string, Awaited<ReturnType<typeof checkRoleAssignment>>>();
 
     const rows: IncomingRow[] = [];
 
@@ -111,9 +117,11 @@ export async function POST(req: NextRequest) {
       const fullName = getVal("fullname", "name", "employee_name", "staff_name");
       const staffId = getVal("staffid", "staff_id", "id", "employee_id");
       const phone = getVal("phone", "phonenumber", "telephone");
-      const roleNames = getVal("role", "roles", "role_names") || "MDA Administrator";
-      const mdaName = getVal("mda", "mda_name", "ministry", "agency", "company") || "Office of the Accountant General of the Federation";
-      const departmentName = getVal("department", "department_name", "dept") || "IPPIS Central Operations";
+      // Nothing is filled in for the importer: an empty role means no role, and an
+      // MDA or department that does not match exactly is an error, not a default
+      const roleNames = getVal("role", "roles", "role_names");
+      const mdaName = getVal("mda", "mda_name", "ministry", "agency", "company");
+      const departmentName = getVal("department", "department_name", "dept");
       const scopeLevel = getVal("scope", "scope_level") || "assigned_mda";
 
       const errors: string[] = [];
@@ -148,13 +156,46 @@ export async function POST(req: NextRequest) {
         fileStaffIds.add(sLower);
       }
 
-      // Check role mapping
-      const matchedRole = allRoles.find((r) =>
-        roleNames.toLowerCase().includes(String(r.name).toLowerCase()) ||
-        (r.key && roleNames.toLowerCase().includes(String(r.key).toLowerCase()))
-      );
-      if (!matchedRole) {
-        warnings.push(`Role '${roleNames}' will default to MDA Administrator`);
+      // MDA: exact name or code
+      const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+      const company = mdaName
+        ? allCompanies.find((c) => norm(c.name) === norm(mdaName) || (c.company_code && norm(c.company_code) === norm(mdaName)))
+        : undefined;
+      if (mdaName && !company) errors.push(`MDA '${mdaName}' not found (use the exact MDA name or code)`);
+
+      // Department: exact name inside that MDA
+      const dept = departmentName && company
+        ? allDepartments.find((d) => Number(d.company_id) === Number(company.id) && norm(d.name) === norm(departmentName))
+        : undefined;
+      if (departmentName && company && !dept) errors.push(`Department '${departmentName}' not found in ${company.name}`);
+      if (departmentName && !mdaName) errors.push("A department needs its MDA in the same row");
+
+      // Roles: exact name or key; several can be separated with ; or |
+      const roleIds: number[] = [];
+      for (const wanted of roleNames.split(/[;|]/).map((r) => r.trim()).filter(Boolean)) {
+        const role = allRoles.find((r) => norm(r.name) === norm(wanted) || (r.key && norm(r.key) === norm(wanted)));
+        if (role) roleIds.push(Number(role.id));
+        else errors.push(`Role '${wanted}' not found (use the exact role name)`);
+      }
+
+      // Scope, and whether the importer may create this account and grant these roles
+      let resolvedScope: Scope | null = null;
+      if (errors.length === 0) {
+        const resolved = await scopeFromRequest(scopeLevel, company?.id ?? null, dept?.id ?? null);
+        if ("error" in resolved) {
+          errors.push(resolved.error);
+        } else if (!covers(ctx, MANAGE, resolved.scope)) {
+          errors.push("This account would be outside your organisational scope");
+        } else {
+          const key = `${roleIds.join(",")}|${resolved.scope.level}|${resolved.scope.companyId}|${resolved.scope.departmentId}`;
+          let check = roleChecks.get(key);
+          if (!check) {
+            check = await checkRoleAssignment(ctx, null, roleIds, resolved.scope);
+            roleChecks.set(key, check);
+          }
+          if (!check.ok) errors.push(check.error);
+          else resolvedScope = resolved.scope;
+        }
       }
 
       rows.push({
@@ -169,6 +210,8 @@ export async function POST(req: NextRequest) {
         department_name: departmentName,
         scope_level: scopeLevel,
         status: "active",
+        resolved_scope: resolvedScope,
+        role_ids: roleIds,
         valid: errors.length === 0,
         errors,
         warnings,
@@ -179,42 +222,12 @@ export async function POST(req: NextRequest) {
     let importedCount = 0;
 
     if (!dryRun && validRows.length > 0) {
-      const defaultRole = allRoles.find((r) =>
-        String(r.name).toLowerCase().includes("mda admin") || (r.key && r.key === "mda_admin")
-      ) || allRoles[0];
-
-      const defaultCompany = allCompanies[0];
-      const defaultDept = allDepartments[0];
-
-      const defaultTempPass = "IPPIS@Portal2025!";
-      const salt = await bcrypt.genSalt(10);
-      const defaultPassHash = await bcrypt.hash(defaultTempPass, salt);
-
       for (const r of validRows) {
-        // Resolve role
-        const role = allRoles.find((ro) =>
-          r.role_names.toLowerCase().includes(String(ro.name).toLowerCase()) ||
-          (ro.key && r.role_names.toLowerCase().includes(String(ro.key).toLowerCase()))
-        ) || defaultRole;
+        const scope = r.resolved_scope!;
+        // Each account gets its own random one-off password, sent only to that user
+        const tempPassword = generateTemporaryPassword();
+        const passHash = await bcrypt.hash(tempPassword, 10);
 
-        // Resolve company
-        const company = allCompanies.find((c) =>
-          r.mda_name.toLowerCase().includes(String(c.name).toLowerCase()) ||
-          (c.company_code && r.mda_name.toLowerCase().includes(String(c.company_code).toLowerCase()))
-        ) || defaultCompany;
-
-        // Resolve department
-        const dept = allDepartments.find((d) =>
-          r.department_name && String(d.name).toLowerCase().includes(r.department_name.toLowerCase())
-        ) || defaultDept;
-
-        const validScope = resolveValidScope(
-          r.scope_level,
-          company ? Number(company.id) : null,
-          dept ? Number(dept.id) : null
-        );
-
-        // Insert into admin_users
         const inserted = await db`
           INSERT INTO admin_users (
             username, email, password_hash, full_name, staff_id, phone,
@@ -222,38 +235,38 @@ export async function POST(req: NextRequest) {
             created_at, updated_at
           )
           VALUES (
-            ${r.username}, ${r.email.toLowerCase()}, ${defaultPassHash}, ${r.full_name}, ${r.staff_id}, ${r.phone || null},
-            ${validScope.company_id}, ${validScope.department_id}, ${validScope.scope_level},
+            ${r.username}, ${r.email.toLowerCase()}, ${passHash}, ${r.full_name}, ${r.staff_id}, ${r.phone || null},
+            ${scope.companyId}, ${scope.departmentId}, ${scope.level},
             'admin', TRUE, 'active', 'Imported via CSV bulk upload', NOW(), NOW()
           )
           RETURNING id
         `;
+        const newId = inserted[0]?.id;
+        if (!newId) continue;
 
-        if (inserted[0]?.id && role?.id) {
+        for (const roleId of r.role_ids) {
           await db`
             INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, assigned_by, reason)
-            VALUES (
-              ${String(inserted[0].id)}, ${Number(role.id)}, ${validScope.scope_level},
-              ${validScope.company_id}, ${validScope.department_id},
-              ${ctx.userId}, ${reason || "Bulk CSV Import"}
-            )
+            VALUES (${String(newId)}, ${roleId}, ${scope.level}, ${scope.companyId}, ${scope.departmentId}, ${ctx.userId}, ${reason || "Bulk CSV Import"})
             ON CONFLICT DO NOTHING
           `;
-          importedCount++;
-
-          // Send credential login email to the employee
-          sendEmployeeCredentialsEmail({
-            to: r.email.toLowerCase(),
-            fullName: r.full_name,
-            username: r.username,
-            temporaryPassword: "IPPIS@Portal2025!",
-            staffId: r.staff_id,
-            roleName: role ? String(role.name) : undefined,
-            mdaName: company ? String(company.name) : undefined,
-            departmentName: dept ? String(dept.name) : undefined,
-            loginUrl: `${process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app"}/login`,
-          }).catch((e) => console.error(`[Bulk Import Email] Failed for ${r.email}:`, e));
         }
+        importedCount++;
+
+        const company = scope.companyId ? allCompanies.find((c) => Number(c.id) === scope.companyId) : undefined;
+        const dept = scope.departmentId ? allDepartments.find((d) => Number(d.id) === scope.departmentId) : undefined;
+        const roleName = allRoles.find((ro) => r.role_ids.includes(Number(ro.id)))?.name;
+        sendEmployeeCredentialsEmail({
+          to: r.email.toLowerCase(),
+          fullName: r.full_name,
+          username: r.username,
+          temporaryPassword: tempPassword,
+          staffId: r.staff_id,
+          roleName: roleName ? String(roleName) : undefined,
+          mdaName: company ? String(company.name) : undefined,
+          departmentName: dept ? String(dept.name) : undefined,
+          loginUrl: `${process.env.NEXT_PUBLIC_FRONTEND_URL || "https://ippis-frontend.vercel.app"}/login`,
+        }).catch((e) => console.error(`[Bulk Import Email] Failed for ${r.email}:`, e));
       }
 
       // Record audit event

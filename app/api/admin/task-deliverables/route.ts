@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited, readReason } from "@/lib/rbac";
 import { notify } from "@/lib/employee-notifications";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,8 @@ export async function GET(req: NextRequest) {
       return withCors(req, { success: false, error: "status must be submitted, approved, rejected or all" }, 400);
     }
     const filter = status === "all" ? null : status;
+    // Only the deliverables of employees inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "projects.records.view");
 
     const rows = await db`
       SELECT d.id, d.task_id, t.name AS task_name, d.employee_id, e.name AS employee_name, d.file_name, d.file_url,
@@ -34,6 +37,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN tasks t ON t.id = d.task_id
       WHERE (${filter}::text IS NULL OR d.status = ${filter})
         AND (${taskId}::int IS NULL OR d.task_id = ${taskId})
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       ORDER BY d.created_at ASC
       LIMIT 200
     `;
@@ -60,6 +64,11 @@ export async function PATCH(req: NextRequest) {
       return withCors(req, { success: false, error: "A note is required when rejecting" }, 400);
     }
     const outcome = body.decision === "approve" ? "approved" : "rejected";
+
+    const [owner] = await db`SELECT employee_id FROM task_deliverables WHERE id = ${id}`;
+    if (!owner || !(await employeeInScope(auth.ctx, "projects.records.approve", owner.employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     const [updated] = await runAudited(
       req,
