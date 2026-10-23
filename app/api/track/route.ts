@@ -116,9 +116,24 @@ function fromEmployee(e: any): Found {
   };
 }
 
+// Approval creates the employee but leaves the registration's own status as it was
+async function approvedEmployee(registrationId: string) {
+  const [employee] = await sql`SELECT id, registration_id, name, email, status FROM employees WHERE registration_id = ${registrationId} LIMIT 1`;
+  return employee ?? null;
+}
+
+// An approved application reads as the employee, with the names and emails given at registration
+async function fromApplication(registration: any): Promise<Found> {
+  const found = await fromRegistration(registration);
+  const employee = await approvedEmployee(registration.registration_id);
+  if (!employee) return found;
+  const asEmployee = fromEmployee(employee);
+  return { ...asEmployee, firstName: found.firstName ?? asEmployee.firstName, emails: [...new Set([...asEmployee.emails, ...found.emails])] };
+}
+
 async function lookupById(id: string): Promise<Found | null> {
   const registration = await registrationById(id);
-  if (registration) return fromRegistration(registration);
+  if (registration) return fromApplication(registration);
   const pending = await pendingById(id);
   if (pending) return fromPending(pending);
   const employee = await employeeById(id);
@@ -131,7 +146,7 @@ async function lookupByEmail(email: string): Promise<Found | null> {
   for (const ref of [byVerification?.registration_id, byPersonal?.registration_id]) {
     if (!ref) continue;
     const [registration] = await sql`SELECT * FROM registrations WHERE id::text = ${String(ref)} OR registration_id = ${String(ref)} LIMIT 1`;
-    if (registration) return fromRegistration(registration);
+    if (registration) return fromApplication(registration);
   }
   const [pending] = await sql`SELECT * FROM pending_employees WHERE LOWER(email) = LOWER(${email}) LIMIT 1`;
   if (pending) return fromPending(pending);
