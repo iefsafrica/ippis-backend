@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -34,6 +35,9 @@ export async function PATCH(req: NextRequest) {
 
     if (!existing[0]) {
       return withCors(req, { success: false, error: "Resignation not found." }, 404);
+    }
+    if (!(await employeeInScope(auth.ctx, "corehr.records.approve", existing[0].employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     if (existing[0].status !== "pending") {

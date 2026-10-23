@@ -53,6 +53,26 @@ export async function employeeInScope(ctx: AuthContext, key: string, employeeId:
 }
 
 /**
+ * Keeps the rows whose employee (the `column` holding employees.id) is inside
+ * the scope. For short, unpaginated lists; paginated lists filter in SQL so
+ * their totals stay right.
+ */
+export async function keepInScope<T extends Record<string, any>>(ctx: AuthContext, key: string, rows: T[], column = "employee_id"): Promise<T[]> {
+  if (recordScope(ctx, key).all) return rows;
+  const ids = rows.map((r) => r[column]).filter((v) => v !== null && v !== undefined && v !== "").map(String);
+  const out = new Set(await employeesOutOfScope(ctx, key, ids));
+  return rows.filter((r) => r[column] !== null && r[column] !== undefined && r[column] !== "" && !out.has(String(r[column])));
+}
+
+/** Whether the department exists and is inside the scope (its MDA or the department itself). */
+export async function departmentInScope(ctx: AuthContext, key: string, departmentId: unknown): Promise<boolean> {
+  const id = Number(departmentId);
+  if (!Number.isInteger(id)) return false;
+  const [d] = await sql`SELECT id, company_id FROM departments WHERE id = ${id}`;
+  return !!d && inScope(recordScope(ctx, key), d.company_id, d.id);
+}
+
+/**
  * A registration belongs to the MDA its applicant became an employee of, or,
  * while pending, the MDA chosen on the registration form. Registrations with
  * neither are reachable with global rights only.

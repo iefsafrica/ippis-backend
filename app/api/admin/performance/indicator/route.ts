@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { recordScope, departmentInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 import { withCors, handleOptions } from "@/lib/cors";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,12 @@ interface UpdateIndicatorBody {
 /* =========================
    OPTIONS (CORS)
 ========================= */
+// Whether the indicator exists and its department is inside the caller's scope
+async function indicatorInScope(ctx: Parameters<typeof departmentInScope>[0], id: unknown) {
+  const [row] = await sql`SELECT department_id FROM performance_indicators WHERE id::text = ${String(id)}`;
+  return !!row && (await departmentInScope(ctx, "performance.records.manage", row.department_id));
+}
+
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
 }
@@ -45,6 +52,8 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    // Only the indicators of departments inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "performance.records.view");
 
     // GET single
     if (id) {
@@ -56,10 +65,11 @@ export async function GET(req: NextRequest) {
         LEFT JOIN departments d ON pi.department_id = d.id
         LEFT JOIN designations des ON pi.designation_id = des.id
         WHERE pi.id = ${Number(id)}
+          AND (${sc.all}::boolean OR d.company_id = ANY(${sc.companyIds}::int[]) OR d.id = ANY(${sc.departmentIds}::int[]))
       `;
 
       if (!result.length) {
-        return withCors(req, { success: false, error: "Indicator not found" }, 404);
+        return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
       }
 
       return withCors(req, { success: true, data: result[0] });
@@ -73,6 +83,7 @@ export async function GET(req: NextRequest) {
       FROM performance_indicators pi
       LEFT JOIN departments d ON pi.department_id = d.id
       LEFT JOIN designations des ON pi.designation_id = des.id
+      WHERE (${sc.all}::boolean OR d.company_id = ANY(${sc.companyIds}::int[]) OR d.id = ANY(${sc.departmentIds}::int[]))
       ORDER BY pi.created_at DESC
     `;
 
@@ -111,6 +122,9 @@ export async function POST(req: NextRequest) {
 
     if (!indicator_name || !department_id || !designation_id || !description) {
       return withCors(req, { success: false, error: "Missing required fields" }, 400);
+    }
+    if (!(await departmentInScope(auth.ctx, "performance.records.manage", department_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     const inserted = await sql`
@@ -167,6 +181,10 @@ export async function PUT(req: NextRequest) {
     if (!id) {
       return withCors(req, { success: false, error: "Indicator ID is required" }, 400);
     }
+    // The indicator, and any department it is moved to, must be inside the caller's scope
+    if (!(await indicatorInScope(auth.ctx, id)) || (department_id && !(await departmentInScope(auth.ctx, "performance.records.manage", department_id)))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     const updated = await sql`
       UPDATE performance_indicators
@@ -219,6 +237,9 @@ export async function DELETE(req: NextRequest) {
 
     if (!id) {
       return withCors(req, { success: false, error: "Indicator ID is required" }, 400);
+    }
+    if (!(await indicatorInScope(auth.ctx, id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     const deleted = await sql`
