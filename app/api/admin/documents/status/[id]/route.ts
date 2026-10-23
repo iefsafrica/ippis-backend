@@ -11,6 +11,8 @@ export async function OPTIONS(req: Request) {
 }
 
 // GET /api/admin/documents/status/:id
+// Public (used during registration): says which documents an application has,
+// never where they are stored. The files themselves are for HR only.
 export async function GET(req: NextRequest) {
   try {
     // Extract the id from the URL
@@ -50,19 +52,19 @@ export async function GET(req: NextRequest) {
     const doc = result[0]!;
 
     // Build only the uploaded documents
-    const uploadedDetails: Record<string, string> = {};
+    const uploadedDetails: Record<string, boolean> = {};
 
     if (doc.appointment_letter_path) {
-      uploadedDetails.appointmentLetter = doc.appointment_letter_path;
+      uploadedDetails.appointmentLetter = true;
     }
     if (doc.educational_certificates_path) {
-      uploadedDetails.educationalCertificates = doc.educational_certificates_path;
+      uploadedDetails.educationalCertificates = true;
     }
     if (doc.profile_image_path) {
-      uploadedDetails.profileImage = doc.profile_image_path;
+      uploadedDetails.profileImage = true;
     }
     if (doc.signature_path) {
-      uploadedDetails.signature = doc.signature_path;
+      uploadedDetails.signature = true;
     }
 
     const uploadedCount = Object.keys(uploadedDetails).length;
@@ -83,8 +85,7 @@ export async function GET(req: NextRequest) {
       req,
       {
         success: false,
-        error: "Server error",
-        details: error instanceof Error ? error.message : String(error)
+        error: "Server error"
       },
       500
     );
