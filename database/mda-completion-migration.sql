@@ -98,4 +98,45 @@ CREATE INDEX IF NOT EXISTS access_requests_status_idx ON access_requests (status
 CREATE UNIQUE INDEX IF NOT EXISTS access_requests_one_pending
     ON access_requests (user_id, role_id, company_id, COALESCE(department_id, 0)) WHERE status = 'pending';
 
+-- ---------------------------------------------------------------------------
+-- Access reviews: an MDA's grants are reviewed (kept or revoked) periodically.
+-- A review without an MDA covers the grants that apply across all MDAs.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS access_reviews (
+    id SERIAL PRIMARY KEY,
+    company_id INTEGER REFERENCES companies(id) ON DELETE RESTRICT,
+    status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'completed')),
+    started_by VARCHAR(255) NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    due_at TIMESTAMPTZ NOT NULL,
+    completed_by VARCHAR(255),
+    completed_at TIMESTAMPTZ,
+    note TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS access_reviews_one_open
+    ON access_reviews (COALESCE(company_id, 0)) WHERE status = 'open';
+
+CREATE TABLE IF NOT EXISTS access_review_items (
+    id SERIAL PRIMARY KEY,
+    review_id INTEGER NOT NULL REFERENCES access_reviews(id) ON DELETE CASCADE,
+    user_id VARCHAR(255) NOT NULL,
+    username VARCHAR(255),
+    kind VARCHAR(20) NOT NULL CHECK (kind IN ('role', 'permission')),
+    role_id INTEGER,
+    permission_id INTEGER,
+    grant_key VARCHAR(255) NOT NULL,
+    grant_name VARCHAR(255),
+    scope_level VARCHAR(20) NOT NULL,
+    company_id INTEGER,
+    department_id INTEGER,
+    expires_at TIMESTAMPTZ,
+    assigned_by VARCHAR(255),
+    assigned_at TIMESTAMPTZ,
+    decision VARCHAR(20) CHECK (decision IN ('keep', 'revoke')),
+    decided_by VARCHAR(255),
+    decided_at TIMESTAMPTZ,
+    note TEXT
+);
+CREATE INDEX IF NOT EXISTS access_review_items_review_idx ON access_review_items (review_id);
+
 COMMIT;

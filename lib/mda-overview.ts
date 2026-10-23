@@ -227,7 +227,22 @@ async function access(mda: number, sc: RecordScope) {
     GROUP BY r.key, r.name
     ORDER BY assignments DESC
   `;
+  // Access reviews of this MDA (a database without the review tables simply has none)
+  let reviews: { last_completed_at: unknown; open: unknown } = { last_completed_at: null, open: null };
+  try {
+    const [last] = await sql`SELECT MAX(completed_at) AS at FROM access_reviews WHERE company_id = ${mda} AND status = 'completed'`;
+    const [open] = await sql`
+      SELECT r.id, r.due_at, r.due_at < NOW() AS overdue,
+             (SELECT COUNT(*) FROM access_review_items i WHERE i.review_id = r.id)::int AS total,
+             (SELECT COUNT(*) FROM access_review_items i WHERE i.review_id = r.id AND i.decision IS NOT NULL)::int AS decided
+      FROM access_reviews r WHERE r.company_id = ${mda} AND r.status = 'open'
+    `;
+    reviews = { last_completed_at: last?.at ?? null, open: open ?? null };
+  } catch (error: any) {
+    if (error?.code !== "42P01") throw error;
+  }
   return {
+    reviews,
     accounts_active: n(accounts?.active),
     accounts_inactive: n(accounts?.inactive),
     accounts_not_signed_in_90_days: n(accounts?.not_signed_in_90_days),
