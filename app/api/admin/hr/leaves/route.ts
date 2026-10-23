@@ -1,7 +1,8 @@
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
-import { requirePermission, runAudited } from "@/lib/rbac";
+import { requirePermission, runAudited, can } from "@/lib/rbac";
+import { decisionOf, decisionRefusal, recordLeaveDecision, LEAVE_APPROVE, LEAVE_MANAGE } from "@/lib/approvals";
 import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
@@ -168,16 +169,30 @@ export async function POST(req: NextRequest) {
 /* -------------------- PUT -------------------- */
 export async function PUT(req: NextRequest) {
   try {
-    const auth = await requirePermission(req, "timesheets.leaves.manage");
-    if (!auth.ok) return auth.response;
-
-    const body = (await req.json()) as Partial<LeavePayload>;
+    const body = (await req.json().catch(() => null)) as Partial<LeavePayload> | null;
+    if (!body) return withCors(req, { success: false, error: "Send the update as JSON" }, 400);
     const { id, employee_id } = body;
+
+    // Approving or rejecting needs the approve permission; changing the
+    // request itself needs manage
+    const decision = decisionOf(body.status);
+    const editing = (["employee_id", "leave_type", "start_date", "end_date", "reason", "emergency_contact"] as const)
+      .some((k) => body[k] !== undefined) || (body.status !== undefined && !decision);
+    const auth = await requirePermission(req, decision ? LEAVE_APPROVE : LEAVE_MANAGE);
+    if (!auth.ok) return auth.response;
 
     if (!id) {
       return withCors(req, { success: false, error: "Leave id is required" }, 400);
     }
-    if (!(await leaveInScope(auth.ctx, id))) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    const [owner] = await sql`SELECT employee_id FROM employee_leaves WHERE id::text = ${String(id)}`;
+    if (!owner) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    if (editing && !(can(auth.ctx, LEAVE_MANAGE) && (await employeeInScope(auth.ctx, LEAVE_MANAGE, owner.employee_id)))) {
+      return withCors(req, { success: false, error: decision ? "Changing the request's details needs timesheets.leaves.manage" : OUT_OF_SCOPE }, decision ? 403 : 404);
+    }
+    if (decision) {
+      const refusal = await decisionRefusal(auth.ctx, LEAVE_APPROVE, owner.employee_id);
+      if (refusal) return withCors(req, { success: false, error: refusal.error }, refusal.status);
+    }
 
     let employee_name: string | undefined;
 
@@ -220,13 +235,19 @@ export async function PUT(req: NextRequest) {
         end_date = COALESCE(${body.end_date}, end_date),
         reason = COALESCE(${body.reason}, reason),
         emergency_contact = COALESCE(${body.emergency_contact}, emergency_contact),
-        status = COALESCE(${body.status}, status),
+        status = COALESCE(${decision ?? body.status}, status),
         updated_at = NOW()
       WHERE id = ${id}
       RETURNING *
     `;
 
-    await runAudited(req, auth.ctx, { action: "timesheets.leave.updated", targetType: "timesheets.leave", details: {} }, []);
+    await runAudited(req, auth.ctx, {
+      action: decision ? `timesheets.leave.${decision}` : "timesheets.leave.updated",
+      targetType: "employee",
+      targetId: String(owner.employee_id),
+      details: { leave_id: id, status: decision ?? body.status ?? null },
+    }, []);
+    if (decision) await recordLeaveDecision("employee_leaves", id, auth.ctx.user.username);
 
     return withCors(req, {
       success: true,

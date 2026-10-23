@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
       INSERT INTO performance_appraisers
         (employee_id, department_id, designation_id, appraisal_date, status, rating, remarks, added_by, created_at, updated_at)
       VALUES
-        (${employee_id}, ${department_id}, ${designation_id}, ${appraisal_date}, ${status ?? 'scheduled'}, ${rating ?? null}, ${remarks ?? null}, ${added_by ?? null}, NOW(), NOW())
+        (${employee_id}, ${department_id}, ${designation_id}, ${appraisal_date}, ${status ?? 'scheduled'}, ${rating ?? null}, ${remarks ?? null}, ${auth.ctx.user.username}, NOW(), NOW())
       RETURNING *
     `;
 

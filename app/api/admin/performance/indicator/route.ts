@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
       INSERT INTO performance_indicators
       (indicator_name, department_id, designation_id, description, status, added_by)
       VALUES
-      (${indicator_name}, ${department_id}, ${designation_id}, ${description}, ${status ?? "active"}, ${added_by ?? "Admin"})
+      (${indicator_name}, ${department_id}, ${designation_id}, ${description}, ${status ?? "active"}, ${auth.ctx.user.username})
       RETURNING *
     `;
 
