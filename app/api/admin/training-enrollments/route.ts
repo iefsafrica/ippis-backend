@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited } from "@/lib/rbac";
 import { notifyMany } from "@/lib/employee-notifications";
+import { recordScope, employeesOutOfScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +22,13 @@ export async function GET(req: NextRequest) {
     const trainingId = Number(new URL(req.url).searchParams.get("training_id"));
     if (!Number.isInteger(trainingId)) return withCors(req, { success: false, error: "training_id is required" }, 400);
 
+    // Only the enrolments of employees inside the caller's MDA or department
+    const sc = recordScope(auth.ctx, "training.records.view");
     const rows = await db`
       SELECT en.employee_id, e.name, e.department, en.status, en.enrolled_by, en.enrolled_at
       FROM training_enrollments en JOIN employees e ON e.id = en.employee_id
       WHERE en.training_id = ${trainingId}
+        AND (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[]))
       ORDER BY e.name
     `;
     return withCors(req, { success: true, data: rows });
@@ -46,7 +50,10 @@ export async function POST(req: NextRequest) {
     if (!Array.isArray(body.employee_ids) || body.employee_ids.length === 0 || body.employee_ids.length > 500) {
       return withCors(req, { success: false, error: "employee_ids must list 1 to 500 employees" }, 400);
     }
-    const ids = [...new Set(body.employee_ids.map((i) => String(i).trim()).filter(Boolean))];
+    const requested = [...new Set(body.employee_ids.map((i) => String(i).trim()).filter(Boolean))];
+    // Employees outside the caller's MDA or department (or unknown) are not enrolled
+    const refused = new Set(await employeesOutOfScope(auth.ctx, "training.records.manage", requested));
+    const ids = requested.filter((i) => !refused.has(i));
 
     const training = await db`SELECT id, training_title, start_date::date::text AS start_date FROM training_programs WHERE id = ${trainingId}`;
     if (!training[0]) return withCors(req, { success: false, error: "Training programme not found" }, 404);
@@ -75,7 +82,7 @@ export async function POST(req: NextRequest) {
     return withCors(req, {
       success: true,
       message: `${added.length} employee(s) enrolled`,
-      data: { enrolled: added, notFound: ids.filter((i) => !added.includes(i)) },
+      data: { enrolled: added, notFound: requested.filter((i) => !added.includes(i)) },
     }, 201);
   } catch (error) {
     console.error("ADD TRAINING ENROLLMENT ERROR:", error);
@@ -94,6 +101,9 @@ export async function DELETE(req: NextRequest) {
     const employeeId = searchParams.get("employee_id");
     if (!Number.isInteger(trainingId) || !employeeId) {
       return withCors(req, { success: false, error: "training_id and employee_id are required" }, 400);
+    }
+    if (!(await employeeInScope(auth.ctx, "training.records.manage", employeeId))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     const [updated] = await runAudited(

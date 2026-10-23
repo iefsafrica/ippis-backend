@@ -5,6 +5,7 @@ import { requirePermission, runAudited, readReason } from "@/lib/rbac";
 import { fileProblem, storeFile } from "@/lib/employee-files";
 import { notify } from "@/lib/employee-notifications";
 import { isDate } from "@/lib/employee-time";
+import { recordScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -31,6 +32,9 @@ export async function GET(req: NextRequest) {
       return withCors(req, { success: false, error: "status must be pending, verified, rejected, issued or all" }, 400);
     }
     const filter = status === "all" ? null : status;
+    // Documents of employees inside the caller's MDA or department, and the
+    // forms every employee can download
+    const sc = recordScope(auth.ctx, "employees.documents.view");
 
     const rows = await db`
       SELECT d.id, d.employee_id, e.name AS employee_name, d.category, d.title, d.file_name, d.file_url, d.content_type,
@@ -40,6 +44,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN employees e ON e.id = d.employee_id
       WHERE (${filter}::text IS NULL OR d.status = ${filter})
         AND (${employeeId}::text IS NULL OR d.employee_id = ${employeeId})
+        AND (d.employee_id IS NULL OR (${sc.all}::boolean OR e.company_id = ANY(${sc.companyIds}::int[]) OR e.department_id = ANY(${sc.departmentIds}::int[])))
       ORDER BY d.created_at ASC
       LIMIT 300
     `;
@@ -77,8 +82,12 @@ export async function POST(req: NextRequest) {
     if (!employeeId && category !== "form") return withCors(req, { success: false, error: "employee_id is required unless the category is form" }, 400);
     if (expires && !isDate(expires)) return withCors(req, { success: false, error: "expires_at must be YYYY-MM-DD" }, 400);
     if (employeeId) {
-      const found = await db`SELECT id FROM employees WHERE id = ${employeeId}`;
-      if (!found[0]) return withCors(req, { success: false, error: "Employee not found" }, 404);
+      if (!(await employeeInScope(auth.ctx, "employees.records.update", employeeId))) {
+        return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+      }
+    } else if (!recordScope(auth.ctx, "employees.records.update").all) {
+      // A form reaches every employee in every MDA
+      return withCors(req, { success: false, error: "Issuing a form for all employees needs employee rights across all MDAs" }, 403);
     }
 
     const stored = await storeFile(file as File, employeeId ? `employee-portal/${employeeId}/hr` : "employee-portal/forms");
@@ -127,6 +136,11 @@ export async function PATCH(req: NextRequest) {
       return withCors(req, { success: false, error: "A note is required when rejecting, so the employee knows what to fix" }, 400);
     }
     const outcome = body.decision === "verify" ? "verified" : "rejected";
+
+    const [owner] = await db`SELECT employee_id FROM employee_documents WHERE id = ${id}`;
+    if (!owner || !(await employeeInScope(auth.ctx, "employees.documents.verify", owner.employee_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     const [updated] = await runAudited(
       req,
