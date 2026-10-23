@@ -139,4 +139,16 @@ CREATE TABLE IF NOT EXISTS access_review_items (
 );
 CREATE INDEX IF NOT EXISTS access_review_items_review_idx ON access_review_items (review_id);
 
+-- ---------------------------------------------------------------------------
+-- MDA restructuring: an MDA merged into another keeps a pointer to it
+-- ---------------------------------------------------------------------------
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS merged_into_company_id INTEGER;
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS merged_at TIMESTAMPTZ;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'companies_merged_into_fkey') THEN
+    ALTER TABLE companies ADD CONSTRAINT companies_merged_into_fkey FOREIGN KEY (merged_into_company_id) REFERENCES companies(id) ON DELETE RESTRICT;
+  END IF;
+END $$;
+
 COMMIT;
