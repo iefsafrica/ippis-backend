@@ -50,12 +50,18 @@ export function normalizeRegistrationId(value: string): string {
   return cleaned.replace(/[^A-Z0-9]/g, "");
 }
 
+// Two-part numbers are IPPIS-NNNNNN-NNNN; parsing drops leading zeros, so put them back
+function padParts(parts: { part1: string; part2: string }) {
+  return { part1: parts.part1.padStart(6, "0"), part2: parts.part2.padStart(4, "0") };
+}
+
 export function canonicalizeRegistrationId(value: string): string {
   const cleaned = value.trim().toUpperCase();
 
   const twoParts = parseIppisParts(cleaned);
   if (twoParts) {
-    return `IPPIS-${twoParts.part1}-${twoParts.part2}`;
+    const { part1, part2 } = padParts(twoParts);
+    return `IPPIS-${part1}-${part2}`;
   }
 
   const single = parseIppisSingle(cleaned);
@@ -104,6 +110,10 @@ export function buildRegistrationIdVariants(value: string): string[] {
     variants.add(`${part1}-${part2}`);
     variants.add(`${part1} ${part2}`);
     variants.add(combined);
+    // As stored: IPPIS-754188-0638
+    const padded = padParts(twoParts);
+    variants.add(`IPPIS-${padded.part1}-${padded.part2}`);
+    variants.add(`IPPIS${padded.part1}${padded.part2}`);
   }
 
   const single = parseIppisSingle(cleaned);
