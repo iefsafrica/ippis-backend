@@ -60,4 +60,42 @@ BEGIN
   END LOOP;
 END $$;
 
+-- ---------------------------------------------------------------------------
+-- One user may hold the same role in more than one MDA or department (needed
+-- for temporary access to another MDA). Same as rbac-migration-2-multi-scope.sql.
+-- ---------------------------------------------------------------------------
+ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_pkey;
+ALTER TABLE user_roles ADD CONSTRAINT user_roles_pkey PRIMARY KEY (id);
+CREATE UNIQUE INDEX IF NOT EXISTS user_roles_assignment_key
+    ON user_roles (user_id, role_id, COALESCE(company_id, 0), COALESCE(department_id, 0));
+CREATE INDEX IF NOT EXISTS user_roles_user_id_idx ON user_roles (user_id);
+
+-- ---------------------------------------------------------------------------
+-- Temporary access to another MDA: requested by the user, approved by an access
+-- administrator of that MDA, granted with an end date and removed by itself then
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS access_requests (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
+    scope_level VARCHAR(20) NOT NULL CHECK (scope_level IN ('mda', 'department')),
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE RESTRICT,
+    department_id INTEGER,
+    reason TEXT NOT NULL,
+    ends_at TIMESTAMPTZ NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled', 'revoked')),
+    decided_by VARCHAR(255),
+    decided_at TIMESTAMPTZ,
+    decision_note TEXT,
+    grant_id BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT access_requests_department_fkey FOREIGN KEY (department_id, company_id)
+        REFERENCES departments(id, company_id) ON DELETE RESTRICT,
+    CONSTRAINT access_requests_scope_check CHECK ((scope_level = 'department') = (department_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS access_requests_status_idx ON access_requests (status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS access_requests_one_pending
+    ON access_requests (user_id, role_id, company_id, COALESCE(department_id, 0)) WHERE status = 'pending';
+
 COMMIT;
