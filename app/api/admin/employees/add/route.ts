@@ -33,6 +33,7 @@ async function tableExists(tableName: string) {
 
 import { generateRegistrationId } from "@/lib/register-utils";
 import { sendEmployeeRegistrationEmail } from "@/lib/email";
+import { issueRegistrationToken, continueLink } from "@/lib/registration-token";
 
 export async function OPTIONS(req: NextRequest) {
   return handleOptions(req);
@@ -277,7 +278,11 @@ export async function POST(req: NextRequest) {
 
     // 5. Send Email (HTML notification with Registration ID and Onboarding link)
     const baseUrl = process.env.NEXT_PUBLIC_FRONTEND_URL || process.env.APP_URL || "https://ippis-frontend.vercel.app";
-    const registrationLink = `${baseUrl}/register?email=${encodeURIComponent(email)}`;
+    // The employee's private continue link; HR does not get the token
+    const registrationToken = await issueRegistrationToken(registrationId);
+    const registrationLink = registrationToken
+      ? continueLink("register", registrationId, email, registrationToken)
+      : `${baseUrl}/register?email=${encodeURIComponent(email)}`;
 
     await sendEmployeeRegistrationEmail({
       to: email,

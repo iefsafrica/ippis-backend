@@ -3,6 +3,7 @@ import { withCors, handleOptions } from "@/lib/cors";
 import { neon } from "@neondatabase/serverless";
 import { v4 as uuidv4 } from "uuid";
 import { generateRegistrationId } from "@/lib/register-utils";
+import { issueRegistrationToken } from "@/lib/registration-token";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,7 @@ export async function GET(req: NextRequest) {
     const { nin, kycData } = extractNinAndKycData(data);
     let resolvedId: string | null = null;
     let resolvedRegistrationId: string | null = null;
+    let registrationToken: string | null = null;
 
     if (nin) {
       // Check if the extracted NIN is correct/valid (must be exactly 11 digits)
@@ -124,6 +126,8 @@ export async function GET(req: NextRequest) {
 
           resolvedId = String(inserted[0]!.id);
           resolvedRegistrationId = inserted[0]!.registration_id;
+          // A new application: its continue token goes to the person who started it
+          registrationToken = await issueRegistrationToken(inserted[0]!.registration_id);
         }
       }
 
@@ -151,6 +155,7 @@ export async function GET(req: NextRequest) {
     return withCors(req, {
       success: true,
       registration_id: resolvedRegistrationId,
+      ...(registrationToken ? { registration_token: registrationToken } : {}),
       data
     }, 200);
 

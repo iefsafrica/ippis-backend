@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { issueRegistrationToken } from "@/lib/registration-token";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
@@ -100,13 +101,16 @@ export async function PATCH(req: NextRequest) {
     const reapplyUrl = `${baseUrl}/reapply?email=${encodeURIComponent(
       pendingEmployee.email
     )}&id=${encodeURIComponent(registrationId)}`;
+    // The emailed link carries a fresh continue token; the response to HR does not
+    const reapplyToken = await issueRegistrationToken(registrationId);
+    const emailedReapplyUrl = reapplyToken ? `${reapplyUrl}&token=${encodeURIComponent(reapplyToken)}` : reapplyUrl;
 
     // Send rejection email (HTML template with reapplication link)
     if (pendingEmployee.email) {
       await sendEmployeeRejectionEmail({
         to: pendingEmployee.email,
         fullName,
-        reapplyUrl,
+        reapplyUrl: emailedReapplyUrl,
       }).catch((emailError) => {
         console.error("⚠️ Failed to send rejection email:", emailError);
       });

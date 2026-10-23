@@ -15,4 +15,10 @@ ALTER TABLE leaves ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ;
 ALTER TABLE employee_leaves ADD COLUMN IF NOT EXISTS decided_by VARCHAR(255);
 ALTER TABLE employee_leaves ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ;
 
+-- ---------------------------------------------------------------------------
+-- The private "continue your application" link: only a hash of the token is kept
+-- ---------------------------------------------------------------------------
+ALTER TABLE registrations ADD COLUMN IF NOT EXISTS resume_token_hash VARCHAR(64);
+ALTER TABLE registrations ADD COLUMN IF NOT EXISTS resume_token_expires_at TIMESTAMPTZ;
+
 COMMIT;

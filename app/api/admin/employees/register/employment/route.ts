@@ -7,6 +7,7 @@ import {
 } from "@/lib/registration-id";
 
 import { isApprovedApplication, APPROVED_LOCKED } from "@/lib/registration-lock";
+import { registrationAccess } from "@/lib/registration-token";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -170,6 +171,10 @@ export async function POST(req: NextRequest) {
     }
     if (await isApprovedApplication(resolvedRegistrationId)) {
       return withCors(req, { success: false, message: APPROVED_LOCKED }, 409);
+    }
+    const access = await registrationAccess(req, resolvedRegistrationId, (body as { registration_token?: unknown }).registration_token);
+    if (!access.ok) {
+      return withCors(req, { success: false, message: access.message }, access.status);
     }
 
     /* -------------------------

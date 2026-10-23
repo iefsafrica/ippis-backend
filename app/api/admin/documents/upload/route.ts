@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 import { isApprovedApplication, APPROVED_LOCKED } from "@/lib/registration-lock";
+import { registrationAccess } from "@/lib/registration-token";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -71,6 +72,10 @@ export async function POST(req: NextRequest) {
     }
     if (await isApprovedApplication(registrationId)) {
       return withCors(req, { success: false, error: APPROVED_LOCKED }, 409);
+    }
+    const access = await registrationAccess(req, registrationId, formData.get("registration_token"));
+    if (!access.ok) {
+      return withCors(req, { success: false, error: access.message }, access.status);
     }
 
     // Upload files to Blob storage
