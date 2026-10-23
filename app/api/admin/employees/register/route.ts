@@ -8,6 +8,7 @@ import {
   resolveRegistrationIdInput,
 } from "@/lib/registration-id";
 import { generateRegistrationId } from "@/lib/register-utils";
+import { isApprovedApplication, submittedEmail, APPROVED_LOCKED } from "@/lib/registration-lock";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -239,6 +240,22 @@ export async function POST(req: NextRequest) {
       ? existingRegistration.registration_id
       : incomingId || (await generateRegistrationId());
 
+    if (existingRegistration) {
+      // An approved application is an employee record now; it is not reopened here
+      if (await isApprovedApplication(existingRegistration.registration_id)) {
+        return withCors(req, { success: false, message: APPROVED_LOCKED }, 409);
+      }
+      // Someone who only knows the IPPIS number cannot take over an application
+      // waiting for a decision by sending their own email address
+      const onFile = await submittedEmail(existingRegistration.registration_id);
+      if (onFile && onFile !== String(email).trim().toLowerCase()) {
+        return withCors(req, {
+          success: false,
+          message: "This application was submitted with a different email address. Use that address, or contact HR.",
+        }, 409);
+      }
+    }
+
     let registrationRow = existingRegistration;
 
     if (!registrationRow) {
@@ -339,7 +356,6 @@ export async function POST(req: NextRequest) {
       {
         success: false,
         message: "Failed to process registration",
-        error: error instanceof Error ? error.message : String(error),
       },
       500
     );

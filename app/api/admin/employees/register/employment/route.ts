@@ -6,6 +6,8 @@ import {
   resolveRegistrationIdInput,
 } from "@/lib/registration-id";
 
+import { isApprovedApplication, APPROVED_LOCKED } from "@/lib/registration-lock";
+
 const sql = neon(process.env.DATABASE_URL!);
 
 /* -------------------------
@@ -166,6 +168,9 @@ export async function POST(req: NextRequest) {
         message: "Invalid registration ID"
       }, 404);
     }
+    if (await isApprovedApplication(resolvedRegistrationId)) {
+      return withCors(req, { success: false, message: APPROVED_LOCKED }, 409);
+    }
 
     /* -------------------------
        INSERT EMPLOYEE INFO
@@ -272,8 +277,7 @@ export async function POST(req: NextRequest) {
 
     return withCors(req, {
       success: false,
-      message: "Failed to save employee information",
-      error: error.message
+      message: "Failed to save employee information"
     }, 500);
   }
 }
