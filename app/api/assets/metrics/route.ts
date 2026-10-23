@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission } from "@/lib/rbac";
+import { moduleScope } from "@/lib/module-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +19,11 @@ export async function GET(req: NextRequest) {
     const auth = await requirePermission(req, "assets.records.view");
     if (!auth.ok) return auth.response;
 
+    // Only the assets of the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "assets.records.view");
+
     // 1. Total Assets
-    const totalAssetsRes = await db`SELECT COUNT(*) FROM assets`;
+    const totalAssetsRes = await db`SELECT COUNT(*) FROM assets a WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))`;
     const totalAssets = Number(totalAssetsRes?.[0]?.count ?? 0);
 
     // 2. Active Categories
@@ -28,21 +32,22 @@ export async function GET(req: NextRequest) {
 
     // 3. Status Breakdown
     const statusBreakdownRes = await db`
-      SELECT status, COUNT(*) as count 
-      FROM assets 
-      GROUP BY status
+      SELECT a.status, COUNT(*) as count 
+      FROM assets a
+      WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
+      GROUP BY a.status
     `;
 
     // 4. Category Breakdown
     const categoryBreakdownRes = await db`
       SELECT c.category_name, COUNT(a.id) as count 
       FROM asset_categories c
-      LEFT JOIN assets a ON c.category_id = a.category_id
+      LEFT JOIN assets a ON c.category_id = a.category_id AND (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
       GROUP BY c.category_name
     `;
 
     // 5. Financial Summary
-    const financialRes = await db`SELECT SUM(purchase_cost) as total_value FROM assets`;
+    const financialRes = await db`SELECT SUM(a.purchase_cost) as total_value FROM assets a WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))`;
     const totalValue = Number(financialRes?.[0]?.total_value ?? 0);
 
     return withCors(req, {

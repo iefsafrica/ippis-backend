@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { moduleScope } from "@/lib/module-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -26,10 +27,14 @@ export async function POST(req: NextRequest) {
       }, 400)
     }
 
+    // Only files of the caller's MDA or department; files for everyone (no MDA) need
+    // rights across all MDAs. The rest are skipped.
+    const sc = moduleScope(auth.ctx, "files.records.approve")
     const existing = await sql`
-      SELECT file_id FROM file_manager_files
-      WHERE file_id = ANY(${fileIds})
-      AND file_url IS NOT NULL AND file_url != ''
+      SELECT f.file_id FROM file_manager_files f
+      WHERE f.file_id = ANY(${fileIds})
+      AND f.file_url IS NOT NULL AND f.file_url != ''
+      AND (${sc.all}::boolean OR f.company_id = ANY(${sc.companyIds}::int[]) OR f.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND f.company_id IS NULL))
     `
     const existingIds = existing.map(r => r.file_id)
     const missingIds = fileIds.filter(id => !existingIds.includes(id))

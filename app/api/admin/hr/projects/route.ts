@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { keepInScope, employeesOutOfScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -54,6 +55,8 @@ export async function GET(req: NextRequest) {
       projects = await sql`SELECT * FROM employee_projects ORDER BY start_date ASC`;
     }
 
+    // An HR project belongs to its manager's MDA or department
+    projects = await keepInScope(auth.ctx, "projects.records.view", projects, "project_manager_id");
     return withCors(req, { success: true, data: projects });
   } catch (error) {
     console.error("Error fetching projects:", error);
@@ -111,6 +114,14 @@ export async function POST(req: NextRequest) {
         error: "Project manager ID does not exist",
         invalid_employee_id: project_manager_id,
       }, 400);
+    }
+
+    if (!(await employeeInScope(auth.ctx, "projects.records.manage", project_manager_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
+    const membersOutside = await employeesOutOfScope(auth.ctx, "projects.records.manage", team_member_ids);
+    if (membersOutside.length > 0) {
+      return withCors(req, { success: false, error: "Some team members are outside your organisational scope", invalid_employee_ids: membersOutside }, 400);
     }
 
     // ---------- Validate team members ----------
@@ -191,6 +202,17 @@ export async function PUT(req: NextRequest) {
     if (!id) {
       return withCors(req, { success: false, error: "Project id is required" }, 400);
     }
+    const [existing] = await sql`SELECT project_manager_id FROM employee_projects WHERE id = ${id}`;
+    if (!existing || !(await employeeInScope(auth.ctx, "projects.records.manage", existing.project_manager_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
+    if (project_manager_id && !(await employeeInScope(auth.ctx, "projects.records.manage", project_manager_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
+    const membersOutside = team_member_ids ? await employeesOutOfScope(auth.ctx, "projects.records.manage", team_member_ids) : [];
+    if (membersOutside.length > 0) {
+      return withCors(req, { success: false, error: "Some team members are outside your organisational scope", invalid_employee_ids: membersOutside }, 400);
+    }
 
     let managerExists: boolean | undefined;
     if (project_manager_id) {
@@ -268,6 +290,11 @@ export async function DELETE(req: NextRequest) {
 
     if (!id) {
       return withCors(req, { success: false, error: "Project id is required" }, 400);
+    }
+
+    const [existing] = await sql`SELECT project_manager_id FROM employee_projects WHERE id = ${id}`;
+    if (!existing || !(await employeeInScope(auth.ctx, "projects.records.manage", existing.project_manager_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     }
 
     await sql`DELETE FROM employee_projects WHERE id = ${id}`;

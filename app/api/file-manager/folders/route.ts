@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { visibleRows, canSee, canChange, placementFor, placementOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -32,14 +33,27 @@ export async function POST(req: NextRequest) {
       return withCors(req, { success: false, error: "Folder name is required" }, 400);
     }
 
+    // A folder inside another takes that folder's MDA; a top-level folder goes to an MDA
+    // inside the caller's scope, or to everyone (no MDA) for users with rights across all MDAs
+    let placement;
+    if (body.parent_id) {
+      const [parent] = await db`SELECT company_id, department_id FROM file_manager_folders WHERE folder_id = ${body.parent_id}`;
+      if (!canChange(auth.ctx, "files.records.manage", parent)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+      placement = placementOf(parent);
+    } else {
+      const placed = await placementFor(auth.ctx, "files.records.manage", body as unknown as Record<string, unknown>);
+      if (!placed.ok) return withCors(req, { success: false, error: placed.error }, placed.status);
+      placement = placed.placement;
+    }
+
     const folderId = `FL-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 
     const result = await db`
       INSERT INTO file_manager_folders (
-        folder_id, name, parent_id, created_at, updated_at
+        folder_id, name, parent_id, company_id, department_id, created_at, updated_at
       )
       VALUES (
-        ${folderId}, ${body.name}, ${body.parent_id ?? null}, NOW(), NOW()
+        ${folderId}, ${body.name}, ${body.parent_id ?? null}, ${placement.companyId}, ${placement.departmentId}, NOW(), NOW()
       )
       RETURNING *
     `;
@@ -71,7 +85,7 @@ export async function GET(req: NextRequest) {
     // Single folder detail
     if (folderId) {
       const single = await db`SELECT * FROM file_manager_folders WHERE folder_id = ${folderId}`;
-      if (!single?.[0]) return withCors(req, { success: false, error: "Folder not found" }, 404);
+      if (!canSee(auth.ctx, "files.records.view", single?.[0], true)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
       return withCors(req, { success: true, data: single[0] });
     }
 
@@ -80,7 +94,8 @@ export async function GET(req: NextRequest) {
       ? await db`SELECT * FROM file_manager_folders WHERE parent_id = ${parentId} ORDER BY name ASC`
       : await db`SELECT * FROM file_manager_folders WHERE parent_id IS NULL ORDER BY name ASC`;
 
-    return withCors(req, { success: true, data: folders });
+    // Folders of the caller's MDA or department, and folders for everyone (no MDA)
+    return withCors(req, { success: true, data: visibleRows(auth.ctx, "files.records.view", folders, true) });
 
   } catch (error: any) {
     console.error("GET FOLDERS ERROR:", error);
@@ -101,9 +116,13 @@ export async function PATCH(req: NextRequest) {
     }
 
     const existing = await db`SELECT * FROM file_manager_folders WHERE folder_id = ${body.folder_id}`;
-    if (!existing?.[0]) return withCors(req, { success: false, error: "Not found" }, 404);
+    if (!canChange(auth.ctx, "files.records.manage", existing?.[0])) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    if (body.parent_id) {
+      const [parent] = await db`SELECT company_id, department_id FROM file_manager_folders WHERE folder_id = ${body.parent_id}`;
+      if (!canChange(auth.ctx, "files.records.manage", parent)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
-    const f = existing[0];
+    const f = existing[0]!;
 
     const updated = await db`
       UPDATE file_manager_folders SET
@@ -138,6 +157,9 @@ export async function DELETE(req: NextRequest) {
     const folderId = searchParams.get("folder_id");
 
     if (!folderId) return withCors(req, { success: false, error: "folder_id required" }, 400);
+
+    const [existing] = await db`SELECT company_id, department_id FROM file_manager_folders WHERE folder_id = ${folderId}`;
+    if (!canChange(auth.ctx, "files.records.manage", existing)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
 
     // Check if folder is empty (no subfolders or files)
     const subfolders = await db`SELECT COUNT(*) FROM file_manager_folders WHERE parent_id = ${folderId}`;

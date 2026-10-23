@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, canSee, parentOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -71,8 +72,9 @@ export async function POST(req: NextRequest) {
 
     // ✅ Verify Account Exists
     const account = await db`SELECT account_id, balance FROM finance_accounts WHERE account_id = ${account_id}`;
-    if (!account?.[0]) {
-      return withCors(req, { success: false, error: "Account not found" }, 404);
+    // A transaction belongs to its account's MDA: the account must be inside the caller's scope
+    if (!account?.[0] || !canChange(auth.ctx, "finance.records.manage", await parentOf("account", account_id))) {
+      return withCors(req, { success: false, error: "Account not found or outside your organisational scope" }, 404);
     }
 
     const transactionId = `TXN-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
@@ -132,6 +134,8 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const transactionId = searchParams.get("transaction_id");
+    // Only the transactions of accounts in the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "finance.records.view");
 
     // SINGLE
     if (transactionId) {
@@ -145,9 +149,10 @@ export async function GET(req: NextRequest) {
         LEFT JOIN finance_payees p ON t.reference_id = p.payee_id AND t.transaction_type = 'Expense'
         LEFT JOIN finance_payers pyr ON t.reference_id = pyr.payer_id AND t.transaction_type = 'Income'
         WHERE t.transaction_id = ${transactionId}
+          AND (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
       `;
       if (!single?.[0]) {
-        return withCors(req, { success: false, error: "Transaction not found" }, 404);
+        return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
       }
       return withCors(req, { success: true, data: single?.[0] ?? null });
     }
@@ -162,42 +167,27 @@ export async function GET(req: NextRequest) {
     const accountId = searchParams.get("account_id");
     const category = searchParams.get("category");
 
-    // Dynamic Conditions
-    const searchCondition = search 
-      ? db`(t.description ILIKE ${'%' + search + '%'} OR t.category ILIKE ${'%' + search + '%'} OR p.payee_name ILIKE ${'%' + search + '%'} OR pyr.payer_name ILIKE ${'%' + search + '%'})`
-      : db`TRUE`;
-    
-    const typeCondition = type ? db`t.transaction_type = ${type}` : db`TRUE`;
-    const accountCondition = accountId ? db`t.account_id = ${accountId}` : db`TRUE`;
-    const categoryCondition = category ? db`t.category = ${category}` : db`TRUE`;
-
-    const transactions = await db`
-      SELECT 
-        t.*, 
-        a.account_name,
-        COALESCE(p.payee_name, pyr.payer_name, 'N/A') as entity_name
-      FROM finance_transactions t
+    // One parameterised query (the driver does not support nested query fragments)
+    const where = `WHERE ($1::text IS NULL OR t.description ILIKE $1 OR t.category ILIKE $1 OR p.payee_name ILIKE $1 OR pyr.payer_name ILIKE $1)
+        AND ($2::text IS NULL OR t.transaction_type = $2)
+        AND ($3::text IS NULL OR t.account_id = $3)
+        AND ($4::text IS NULL OR t.category = $4)
+        AND ($5::boolean OR a.company_id = ANY($6::int[]) OR a.department_id = ANY($7::int[]))`;
+    const joins = `FROM finance_transactions t
       JOIN finance_accounts a ON t.account_id = a.account_id
       LEFT JOIN finance_payees p ON t.reference_id = p.payee_id AND t.transaction_type = 'Expense'
-      LEFT JOIN finance_payers pyr ON t.reference_id = pyr.payer_id AND t.transaction_type = 'Income'
-      WHERE ${searchCondition}
-        AND ${typeCondition}
-        AND ${accountCondition}
-        AND ${categoryCondition}
-      ORDER BY t.transaction_date DESC, t.created_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
+      LEFT JOIN finance_payers pyr ON t.reference_id = pyr.payer_id AND t.transaction_type = 'Income'`;
+    const params = [search ? `%${search}%` : null, type, accountId, category, sc.all, sc.companyIds, sc.departmentIds];
 
-    const totals = await db`
-      SELECT COUNT(*) 
-      FROM finance_transactions t
-      LEFT JOIN finance_payees p ON t.reference_id = p.payee_id AND t.transaction_type = 'Expense'
-      LEFT JOIN finance_payers pyr ON t.reference_id = pyr.payer_id AND t.transaction_type = 'Income'
-      WHERE ${searchCondition}
-        AND ${typeCondition}
-        AND ${accountCondition}
-        AND ${categoryCondition}
-    `;
+    const transactions = await db.query(
+      `SELECT t.*, a.account_name, COALESCE(p.payee_name, pyr.payer_name, 'N/A') as entity_name
+       ${joins} ${where}
+       ORDER BY t.transaction_date DESC, t.created_at DESC
+       LIMIT $8 OFFSET $9`,
+      [...params, limit, offset]
+    );
+
+    const totals = await db.query(`SELECT COUNT(*) ${joins} ${where}`, params);
 
     return withCors(req, {
       success: true,
@@ -238,6 +228,12 @@ export async function PATCH(req: NextRequest) {
     }
 
     const t = existing[0];
+    if (!canChange(auth.ctx, "finance.records.manage", await parentOf("account", t.account_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
+    if (body.account_id && body.account_id !== t.account_id && !canChange(auth.ctx, "finance.records.manage", await parentOf("account", body.account_id))) {
+      return withCors(req, { success: false, error: "Account not found or outside your organisational scope" }, 404);
+    }
 
     // Calculate Balance Reversal and New Application
     // Reverse old
@@ -315,6 +311,9 @@ export async function DELETE(req: NextRequest) {
     }
 
     const t = existing[0];
+    if (!canChange(auth.ctx, "finance.records.manage", await parentOf("account", t.account_id))) {
+      return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     // Reverse Balance Impact
     let reversal = 0;

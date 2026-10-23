@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission } from "@/lib/rbac";
+import { moduleScope } from "@/lib/module-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -31,18 +32,24 @@ export async function GET(req: NextRequest) {
     const auth = await requirePermission(req, "finance.records.view");
     if (!auth.ok) return auth.response;
 
+    // Only the accounts of the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "finance.records.view");
+
     // ---------------- TOTAL CURRENT BALANCE ----------------
     const totalRes = await db`
-      SELECT COALESCE(SUM(balance),0) as total FROM finance_accounts
+      SELECT COALESCE(SUM(a.balance),0) as total FROM finance_accounts a
+      WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
     ` as unknown as SumResult[];
 
     const totalBalance = Number(totalRes?.[0]?.total ?? 0);
 
     // ---------------- PREVIOUS PERIOD ----------------
     const prevRes = await db`
-      SELECT COALESCE(SUM(balance),0) as total
-      FROM finance_account_history
-      WHERE recorded_at <= NOW() - INTERVAL '30 days'
+      SELECT COALESCE(SUM(h.balance),0) as total
+      FROM finance_account_history h
+      JOIN finance_accounts a ON a.account_id = h.account_id
+      WHERE h.recorded_at <= NOW() - INTERVAL '30 days'
+        AND (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
     ` as unknown as SumResult[];
 
     const previousBalance = Number(prevRes?.[0]?.total ?? 0);
@@ -69,6 +76,7 @@ export async function GET(req: NextRequest) {
         ) as previous_balance,
         fa.updated_at
       FROM finance_accounts fa
+      WHERE (${sc.all}::boolean OR fa.company_id = ANY(${sc.companyIds}::int[]) OR fa.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND fa.company_id IS NULL))
     ` as unknown as AccountRow[];
 
     let increase = 0;
@@ -102,11 +110,13 @@ export async function GET(req: NextRequest) {
     // ---------------- TREND ----------------
     const trendRaw = await db`
       SELECT 
-        DATE(recorded_at) as date,
-        SUM(balance) as total
-      FROM finance_account_history
-      WHERE recorded_at >= NOW() - INTERVAL '30 days'
-      GROUP BY DATE(recorded_at)
+        DATE(h.recorded_at) as date,
+        SUM(h.balance) as total
+      FROM finance_account_history h
+      JOIN finance_accounts a ON a.account_id = h.account_id
+      WHERE h.recorded_at >= NOW() - INTERVAL '30 days'
+        AND (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
+      GROUP BY DATE(h.recorded_at)
       ORDER BY date ASC
     ` as any[];
 

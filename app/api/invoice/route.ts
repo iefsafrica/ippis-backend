@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, canSee, OUT_OF_SCOPE } from "@/lib/module-scope";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -58,16 +59,16 @@ export async function POST(req: NextRequest) {
       return withCors(req, { success: false, error: "Missing required fields" }, 400);
     }
 
-    // Check client
-    const client = await sql`SELECT id FROM clients WHERE id = ${body.client_id}`;
-    if (!client.length) {
-      return withCors(req, { success: false, error: "Client not found" }, 404);
+    // An invoice belongs to its project's MDA: the project must be inside the
+    // caller's scope, and the client visible to them
+    const client = await sql`SELECT id, company_id, department_id FROM clients WHERE id = ${body.client_id}`;
+    if (!canSee(auth.ctx, "finance.records.manage", client[0])) {
+      return withCors(req, { success: false, error: "Client not found or outside your organisational scope" }, 404);
     }
 
-    // Check project
-    const project = await sql`SELECT id FROM projects WHERE id = ${body.project_id}`;
-    if (!project.length) {
-      return withCors(req, { success: false, error: "Project not found" }, 404);
+    const project = await sql`SELECT id, company_id, department_id FROM projects WHERE id = ${body.project_id}`;
+    if (!canChange(auth.ctx, "finance.records.manage", project[0])) {
+      return withCors(req, { success: false, error: "Project not found or outside your organisational scope" }, 404);
     }
 
     // Auto-generate invoice_number like INV-2023-001
@@ -129,6 +130,8 @@ export async function GET(req: NextRequest) {
     const limit = Number(searchParams.get("limit") || "10");
     const offset = (page - 1) * limit;
     const idFilter = searchParams.get("id");
+    // Only the invoices of projects in the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "finance.records.view");
 
     let rows;
     if (idFilter) {
@@ -138,19 +141,22 @@ export async function GET(req: NextRequest) {
         JOIN clients c ON i.client_id = c.id
         JOIN projects p ON i.project_id = p.id
         WHERE i.id = ${idFilter}
+          AND (${sc.all}::boolean OR p.company_id = ANY(${sc.companyIds}::int[]) OR p.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND p.company_id IS NULL))
       `;
+      if (!rows.length) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     } else {
       rows = await sql`
         SELECT i.*, c.name AS client_name, p.name AS project_name
         FROM invoices i
         JOIN clients c ON i.client_id = c.id
         JOIN projects p ON i.project_id = p.id
+        WHERE (${sc.all}::boolean OR p.company_id = ANY(${sc.companyIds}::int[]) OR p.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND p.company_id IS NULL))
         ORDER BY i.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
     }
 
-    const countResult = await sql`SELECT COUNT(*) AS total FROM invoices`;
+    const countResult = await sql`SELECT COUNT(*) AS total FROM invoices i JOIN projects p ON p.id = i.project_id WHERE (${sc.all}::boolean OR p.company_id = ANY(${sc.companyIds}::int[]) OR p.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND p.company_id IS NULL))`;
     const total = Number(countResult?.[0]?.total ?? 0);
 
     return withCors(req, {
@@ -175,6 +181,13 @@ export async function PUT(req: NextRequest) {
 
     const body = (await req.json()) as InvoicePayload;
     if (!body.id) return withCors(req, { success: false, error: "ID is required" }, 400);
+    // The invoice's project, and any project it moves to, must be inside the caller's scope
+    const [current] = await sql`SELECT p.company_id, p.department_id FROM invoices i JOIN projects p ON p.id = i.project_id WHERE i.id = ${body.id}`;
+    if (!canChange(auth.ctx, "finance.records.manage", current)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    if (body.project_id) {
+      const [project] = await sql`SELECT company_id, department_id FROM projects WHERE id = ${body.project_id}`;
+      if (!canChange(auth.ctx, "finance.records.manage", project)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
+    }
 
     const result = await sql`
       UPDATE invoices SET
@@ -209,6 +222,8 @@ export async function DELETE(req: NextRequest) {
     const id = searchParams.get("id");
     if (!id) return withCors(req, { success: false, error: "ID required" }, 400);
 
+    const [current] = await sql`SELECT p.company_id, p.department_id FROM invoices i JOIN projects p ON p.id = i.project_id WHERE i.id = ${id}`;
+    if (!canChange(auth.ctx, "finance.records.manage", current)) return withCors(req, { success: false, error: OUT_OF_SCOPE }, 404);
     const result = await sql`DELETE FROM invoices WHERE id = ${id} RETURNING *`;
     if (!result.length) return withCors(req, { success: false, error: "Not found" }, 404);
 

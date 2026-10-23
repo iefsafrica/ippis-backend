@@ -2,6 +2,8 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, placementFor, placementOf, OUT_OF_SCOPE } from "@/lib/module-scope";
+import { employeeInScope } from "@/lib/mda-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +92,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // The project belongs to an MDA inside the caller's scope, and so does its manager
+    const placed = await placementFor(auth.ctx, "projects.records.manage", body as Record<string, unknown>);
+    if (!placed.ok) return withCors(req, { success: false, message: placed.error }, placed.status);
+    if (placed.placement.companyId !== null && !(await employeeInScope(auth.ctx, "projects.records.manage", body.manager_id))) {
+      return withCors(req, { success: false, message: "The manager must be an employee inside your organisational scope" }, 400);
+    }
+
     // Auto-generate project_code like PRJ-001
     const lastProject = await sql`SELECT project_code FROM projects ORDER BY id DESC LIMIT 1`;
     let newProjectCode = "PRJ-001";
@@ -113,7 +122,9 @@ export async function POST(req: NextRequest) {
         progress,
         priority,
         budget,
-        manager_id
+        manager_id,
+        company_id,
+        department_id
       )
       VALUES (
         ${newProjectCode},
@@ -125,7 +136,9 @@ export async function POST(req: NextRequest) {
         ${body.progress || 0},
         ${body.priority || "Medium"},
         ${body.budget},
-        ${body.manager_id}
+        ${body.manager_id},
+        ${placed.placement.companyId},
+        ${placed.placement.departmentId}
       )
       RETURNING *
     `;
@@ -164,6 +177,8 @@ export async function GET(req: NextRequest) {
     const offset = (page - 1) * limit;
 
     const idFilter = searchParams.get("id");
+    // Only the projects of the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "projects.records.view");
 
     let rows;
     if (idFilter) {
@@ -173,19 +188,22 @@ export async function GET(req: NextRequest) {
         FROM projects p
         JOIN employees e ON p.manager_id = e.id
         WHERE p.id = ${idFilter}
+          AND (${sc.all}::boolean OR p.company_id = ANY(${sc.companyIds}::int[]) OR p.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND p.company_id IS NULL))
       `;
+      if (!rows.length) return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
     } else {
       // Fetch paginated list
       rows = await sql`
         SELECT p.*, e.name AS manager_name, e.department AS manager_department
         FROM projects p
         JOIN employees e ON p.manager_id = e.id
+        WHERE (${sc.all}::boolean OR p.company_id = ANY(${sc.companyIds}::int[]) OR p.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND p.company_id IS NULL))
         ORDER BY p.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
     }
 
-    const countResult = await sql`SELECT COUNT(*) AS total FROM projects`;
+    const countResult = await sql`SELECT COUNT(*) AS total FROM projects p WHERE (${sc.all}::boolean OR p.company_id = ANY(${sc.companyIds}::int[]) OR p.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND p.company_id IS NULL))`;
     const total = Number(countResult?.[0]?.total ?? 0);
 
     return withCors(req, {
@@ -222,6 +240,14 @@ export async function PUT(req: NextRequest) {
     if (!body.id)
       return withCors(req, { success: false, message: "ID is required" }, 400);
 
+    const [existing] = await sql`SELECT company_id, department_id FROM projects WHERE id = ${body.id}`;
+    if (!canChange(auth.ctx, "projects.records.manage", existing)) {
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
+    }
+    // Moving the project to another MDA needs authority over the destination
+    const placed = await placementFor(auth.ctx, "projects.records.manage", body as Record<string, unknown>, placementOf(existing));
+    if (!placed.ok) return withCors(req, { success: false, message: placed.error }, placed.status);
+
     if (body.manager_id) {
       // Verify manager exists
       const manager = await sql`SELECT id FROM employees WHERE id = ${body.manager_id}`;
@@ -240,7 +266,9 @@ export async function PUT(req: NextRequest) {
         progress = COALESCE(${body.progress}, progress),
         priority = COALESCE(${body.priority}, priority),
         budget = COALESCE(${body.budget}, budget),
-        manager_id = COALESCE(${body.manager_id}, manager_id)
+        manager_id = COALESCE(${body.manager_id}, manager_id),
+        company_id = ${placed.placement.companyId},
+        department_id = ${placed.placement.departmentId}
       WHERE id = ${body.id}
       RETURNING *
     `;
@@ -273,6 +301,10 @@ export async function DELETE(req: NextRequest) {
     if (!id)
       return withCors(req, { success: false, message: "ID required" }, 400);
 
+    const [existing] = await sql`SELECT company_id, department_id FROM projects WHERE id = ${id}`;
+    if (!canChange(auth.ctx, "projects.records.manage", existing)) {
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
+    }
     const result = await sql`DELETE FROM projects WHERE id = ${id} RETURNING *`;
     if (!result.length)
       return withCors(req, { success: false, message: "Project not found" }, 404);

@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless"
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server"
 import { requirePermission, runAudited } from "@/lib/rbac"
+import { moduleScope } from "@/lib/module-scope"
 
 export const dynamic = "force-dynamic"
 
@@ -26,12 +27,15 @@ export async function POST(req: NextRequest) {
       }, 400)
     }
 
-    // Check which projects exist and are not "empty" (have a name and manager)
+    // Check which projects exist, are not "empty" (have a name and manager) and are
+    // inside the caller's MDA or department; the rest are skipped
+    const sc = moduleScope(auth.ctx, "projects.records.approve")
     const existingProjects = await sql`
-      SELECT id FROM projects 
-      WHERE id = ANY(${projectIds}) 
-      AND name IS NOT NULL AND name != ''
-      AND manager_id IS NOT NULL
+      SELECT p.id FROM projects p
+      WHERE p.id = ANY(${projectIds})
+      AND p.name IS NOT NULL AND p.name != ''
+      AND p.manager_id IS NOT NULL
+      AND (${sc.all}::boolean OR p.company_id = ANY(${sc.companyIds}::int[]) OR p.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND p.company_id IS NULL))
     `
 
     const existingIds = existingProjects.map(p => p.id)

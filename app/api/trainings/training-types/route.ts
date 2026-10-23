@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requirePermission } from "@/lib/rbac";
+import { moduleScope } from "@/lib/module-scope";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 
@@ -19,6 +20,8 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requirePermission(req, "training.records.view");
     if (!auth.ok) return auth.response;
+    // Only the programmes of the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "training.records.view");
 
     // Fetch training types with details
     const result = await sql`
@@ -30,7 +33,8 @@ export async function GET(req: NextRequest) {
         CASE WHEN certification THEN 'Yes' ELSE 'No' END AS certification,
         COUNT(*) AS trainings,
         status
-      FROM training_programs
+      FROM training_programs t
+      WHERE (${sc.all}::boolean OR t.company_id = ANY(${sc.companyIds}::int[]) OR t.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND t.company_id IS NULL))
       GROUP BY type, category, duration, required, certification, status
       ORDER BY type ASC
     `;

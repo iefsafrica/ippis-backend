@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, placementFor, placementOf, parentOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { z } from "zod";
@@ -43,10 +44,10 @@ export async function POST(req: NextRequest) {
       SELECT id FROM job_posts WHERE id = ${body.job_id}
     `;
 
-    if (job.length === 0) {
+    if (job.length === 0 || !canChange(auth.ctx, "recruitment.records.manage", await parentOf("job", body.job_id))) {
       return withCors(req, {
         success: false,
-        message: "Invalid job ID"
+        message: "Invalid job ID or outside your organisational scope"
       }, 404);
     }
 
@@ -107,6 +108,8 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status");
     const job_id = searchParams.get("job_id");
     const search = searchParams.get("search");
+    // Only the candidates of job posts in the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "recruitment.records.view");
 
     /* SINGLE */
     if (id) {
@@ -115,10 +118,11 @@ export async function GET(req: NextRequest) {
         FROM job_candidates jc
         LEFT JOIN job_posts jp ON jc.job_id = jp.id
         WHERE jc.id = ${id}
+          AND (${sc.all}::boolean OR jp.company_id = ANY(${sc.companyIds}::int[]) OR jp.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND jp.company_id IS NULL))
       `;
 
       if (result.length === 0) {
-        return withCors(req, { success: false, message: "Candidate not found" }, 404);
+        return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
       }
 
       return withCors(req, {
@@ -134,12 +138,10 @@ export async function GET(req: NextRequest) {
         jp.job_title
       FROM job_candidates jc
       LEFT JOIN job_posts jp ON jc.job_id = jp.id
-      WHERE
-        (${status ? sql`jc.status = ${status}` : sql`TRUE`})
-        AND
-        (${job_id ? sql`jc.job_id = ${job_id}` : sql`TRUE`})
-        AND
-        (${search ? sql`jc.candidate_name ILIKE ${"%" + search + "%"}` : sql`TRUE`})
+      WHERE (${status}::text IS NULL OR jc.status = ${status})
+        AND (${job_id}::text IS NULL OR jc.job_id::text = ${job_id})
+        AND (${search ? "%" + search + "%" : null}::text IS NULL OR jc.candidate_name ILIKE ${search ? "%" + search + "%" : null})
+        AND (${sc.all}::boolean OR jp.company_id = ANY(${sc.companyIds}::int[]) OR jp.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND jp.company_id IS NULL))
       ORDER BY jc.created_at DESC
     `;
 
@@ -173,6 +175,11 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = CandidateSchema.parse(await req.json());
+    // The candidate's job post, and any post they move to, must be inside the caller's scope
+    const [current] = await sql`SELECT job_id FROM job_candidates WHERE id = ${id}`;
+    if (!current || !canChange(auth.ctx, "recruitment.records.manage", await parentOf("job", current.job_id)) || !canChange(auth.ctx, "recruitment.records.manage", await parentOf("job", body.job_id))) {
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
+    }
 
     const result = await sql`
       UPDATE job_candidates SET
@@ -224,6 +231,10 @@ export async function DELETE(req: NextRequest) {
 
     if (!id) {
       return withCors(req, { success: false, message: "Candidate ID is required" }, 400);
+    }
+    const [current] = await sql`SELECT job_id FROM job_candidates WHERE id = ${id}`;
+    if (!current || !canChange(auth.ctx, "recruitment.records.manage", await parentOf("job", current.job_id))) {
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
     }
 
     const result = await sql`

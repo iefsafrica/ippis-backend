@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, canSee, parentOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -66,10 +67,11 @@ export async function POST(req: NextRequest) {
     const account = await db`
       SELECT account_id FROM finance_accounts WHERE account_id = ${account_id}
     `;
-    if (!account?.[0]) {
+    // A deposit belongs to its account's MDA: the account must be inside the caller's scope
+    if (!account?.[0] || !canChange(auth.ctx, "finance.records.manage", await parentOf("account", account_id))) {
       return withCors(req, {
         success: false,
-        error: "Account not found"
+        error: "Account not found or outside your organisational scope"
       }, 404);
     }
 
@@ -77,10 +79,11 @@ export async function POST(req: NextRequest) {
     const payer = await db`
       SELECT payer_id FROM finance_payers WHERE payer_id = ${payer_id}
     `;
-    if (!payer?.[0]) {
+    const [payerRow] = await db`SELECT company_id, department_id FROM finance_payers WHERE payer_id = ${payer_id}`;
+    if (!payer?.[0] || !canSee(auth.ctx, "finance.records.manage", payerRow)) {
       return withCors(req, {
         success: false,
-        error: "Payer not found"
+        error: "Payer not found or outside your organisational scope"
       }, 404);
     }
 
@@ -145,6 +148,9 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const depositId = searchParams.get("deposit_id");
 
+    // Only the deposits of accounts in the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "finance.records.view");
+
     // ✅ SINGLE
     if (depositId) {
       const single = await db`
@@ -156,12 +162,13 @@ export async function GET(req: NextRequest) {
         LEFT JOIN finance_accounts a ON d.account_id = a.account_id
         LEFT JOIN finance_payers p ON d.payer_id = p.payer_id
         WHERE d.deposit_id = ${depositId}
+          AND (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
       `;
 
       if (!single?.[0]) {
         return withCors(req, {
           success: false,
-          error: "Deposit not found"
+          error: OUT_OF_SCOPE
         }, 404);
       }
 
@@ -184,11 +191,12 @@ export async function GET(req: NextRequest) {
       FROM finance_deposits d
       LEFT JOIN finance_accounts a ON d.account_id = a.account_id
       LEFT JOIN finance_payers p ON d.payer_id = p.payer_id
+      WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))
       ORDER BY d.date DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const count = await db`SELECT COUNT(*) FROM finance_deposits`;
+    const count = await db`SELECT COUNT(*) FROM finance_deposits d LEFT JOIN finance_accounts a ON d.account_id = a.account_id WHERE (${sc.all}::boolean OR a.company_id = ANY(${sc.companyIds}::int[]) OR a.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND a.company_id IS NULL))`;
 
     return withCors(req, {
       success: true,
@@ -235,11 +243,14 @@ export async function PATCH(req: NextRequest) {
 
     const d = existing?.[0];
 
-    if (!d) {
+    if (!d || !canChange(auth.ctx, "finance.records.manage", await parentOf("account", d.account_id))) {
       return withCors(req, {
         success: false,
-        error: "Deposit not found"
+        error: OUT_OF_SCOPE
       }, 404);
+    }
+    if (body.account_id && body.account_id !== d.account_id && !canChange(auth.ctx, "finance.records.manage", await parentOf("account", body.account_id))) {
+      return withCors(req, { success: false, error: "Account not found or outside your organisational scope" }, 404);
     }
 
     const oldAmount = Number(d.amount);
@@ -312,10 +323,10 @@ export async function DELETE(req: NextRequest) {
 
     const d = existing?.[0];
 
-    if (!d) {
+    if (!d || !canChange(auth.ctx, "finance.records.manage", await parentOf("account", d.account_id))) {
       return withCors(req, {
         success: false,
-        error: "Deposit not found"
+        error: OUT_OF_SCOPE
       }, 404);
     }
 

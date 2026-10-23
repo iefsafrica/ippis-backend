@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { moduleScope, canChange, placementFor, placementOf, parentOf, OUT_OF_SCOPE } from "@/lib/module-scope";
 import { neon } from "@neondatabase/serverless";
 import { withCors, handleOptions } from "@/lib/cors";
 import { z } from "zod";
@@ -37,6 +38,10 @@ export async function POST(req: NextRequest) {
     if (!auth.ok) return auth.response;
 
     const body = InterviewSchema.parse(await req.json());
+    // An interview belongs to its job post's MDA
+    if (!canChange(auth.ctx, "recruitment.records.manage", await parentOf("job", body.job_id))) {
+      return withCors(req, { success: false, message: "Job not found or outside your organisational scope" }, 404);
+    }
 
     const result = await sql`
       INSERT INTO job_interviews (
@@ -93,6 +98,8 @@ export async function GET(req: NextRequest) {
 
     const id = searchParams.get("id");
     const status = searchParams.get("status");
+    // Only the interviews of job posts in the caller's MDA or department
+    const sc = moduleScope(auth.ctx, "recruitment.records.view");
 
     /* SINGLE INTERVIEW */
     if (id) {
@@ -106,10 +113,11 @@ export async function GET(req: NextRequest) {
         LEFT JOIN job_candidates jc ON ji.candidate_id = jc.id
         LEFT JOIN job_posts jp ON ji.job_id = jp.id
         WHERE ji.id = ${id}
+          AND (${sc.all}::boolean OR jp.company_id = ANY(${sc.companyIds}::int[]) OR jp.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND jp.company_id IS NULL))
       `;
 
       if (result.length === 0) {
-        return withCors(req, { success: false, message: "Interview not found" }, 404);
+        return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
       }
 
       return withCors(req, { success: true, data: result[0] });
@@ -130,7 +138,8 @@ export async function GET(req: NextRequest) {
       FROM job_interviews ji
       LEFT JOIN job_candidates jc ON ji.candidate_id = jc.id
       LEFT JOIN job_posts jp ON ji.job_id = jp.id
-      WHERE (${status ? sql`ji.status = ${status}` : sql`TRUE`})
+      WHERE (${status}::text IS NULL OR ji.status = ${status})
+        AND (${sc.all}::boolean OR jp.company_id = ANY(${sc.companyIds}::int[]) OR jp.department_id = ANY(${sc.departmentIds}::int[]) OR (false::boolean AND jp.company_id IS NULL))
       ORDER BY ji.interview_datetime DESC
     `;
 
@@ -164,6 +173,10 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = InterviewSchema.parse(await req.json());
+    const [current] = await sql`SELECT job_id FROM job_interviews WHERE id = ${id}`;
+    if (!current || !canChange(auth.ctx, "recruitment.records.manage", await parentOf("job", current.job_id)) || !canChange(auth.ctx, "recruitment.records.manage", await parentOf("job", body.job_id))) {
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
+    }
 
     const result = await sql`
       UPDATE job_interviews SET
@@ -215,6 +228,10 @@ export async function DELETE(req: NextRequest) {
 
     if (!id) {
       return withCors(req, { success: false, message: "Interview ID required" }, 400);
+    }
+    const [current] = await sql`SELECT job_id FROM job_interviews WHERE id = ${id}`;
+    if (!current || !canChange(auth.ctx, "recruitment.records.manage", await parentOf("job", current.job_id))) {
+      return withCors(req, { success: false, message: OUT_OF_SCOPE }, 404);
     }
 
     const result = await sql`

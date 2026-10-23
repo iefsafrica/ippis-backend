@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited } from "@/lib/rbac";
+import { canChange as canChangeRecord, canSee } from "@/lib/module-scope";
 import { notifyMany } from "@/lib/employee-notifications";
 import { recordScope, employeesOutOfScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 
@@ -21,6 +22,10 @@ export async function GET(req: NextRequest) {
 
     const trainingId = Number(new URL(req.url).searchParams.get("training_id"));
     if (!Number.isInteger(trainingId)) return withCors(req, { success: false, error: "training_id is required" }, 400);
+    const [programme] = await db`SELECT company_id, department_id FROM training_programs WHERE id = ${trainingId}`;
+    if (!canSee(auth.ctx, "training.records.view", programme)) {
+      return withCors(req, { success: false, error: "Training programme not found or outside your organisational scope" }, 404);
+    }
 
     // Only the enrolments of employees inside the caller's MDA or department
     const sc = recordScope(auth.ctx, "training.records.view");
@@ -55,8 +60,10 @@ export async function POST(req: NextRequest) {
     const refused = new Set(await employeesOutOfScope(auth.ctx, "training.records.manage", requested));
     const ids = requested.filter((i) => !refused.has(i));
 
-    const training = await db`SELECT id, training_title, start_date::date::text AS start_date FROM training_programs WHERE id = ${trainingId}`;
-    if (!training[0]) return withCors(req, { success: false, error: "Training programme not found" }, 404);
+    const training = await db`SELECT id, training_title, start_date::date::text AS start_date, company_id, department_id FROM training_programs WHERE id = ${trainingId}`;
+    if (!canChangeRecord(auth.ctx, "training.records.manage", training[0])) {
+      return withCors(req, { success: false, error: "Training programme not found or outside your organisational scope" }, 404);
+    }
 
     const [enrolled] = await runAudited(
       req,
@@ -70,7 +77,7 @@ export async function POST(req: NextRequest) {
       `]
     );
     const added = (enrolled ?? []).map((r: any) => String(r.employee_id));
-    const t = training[0];
+    const t = training[0]!;
     await notifyMany("training", added.map((employeeId: string) => ({
       employeeId,
       title: "You have been enrolled in training",
