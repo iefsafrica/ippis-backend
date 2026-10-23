@@ -151,4 +151,33 @@ BEGIN
   END IF;
 END $$;
 
+-- ---------------------------------------------------------------------------
+-- Payroll runs: one MDA's payroll for a month, prepared and approved as a whole
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS payroll_runs (
+    id SERIAL PRIMARY KEY,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE RESTRICT,
+    period CHAR(7) NOT NULL CHECK (period ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+    payment_date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'prepared' CHECK (status IN ('prepared', 'approved', 'rejected')),
+    employee_count INTEGER NOT NULL DEFAULT 0,
+    total_amount NUMERIC(16, 2) NOT NULL DEFAULT 0,
+    skipped JSONB,
+    prepared_by VARCHAR(255) NOT NULL,
+    prepared_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    decided_by VARCHAR(255),
+    decided_at TIMESTAMPTZ,
+    decision_note TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS payroll_runs_one_per_period
+    ON payroll_runs (company_id, period) WHERE status <> 'rejected';
+ALTER TABLE payroll ADD COLUMN IF NOT EXISTS payroll_run_id INTEGER;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payroll_run_fkey') THEN
+    ALTER TABLE payroll ADD CONSTRAINT payroll_run_fkey FOREIGN KEY (payroll_run_id) REFERENCES payroll_runs(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS payroll_payroll_run_idx ON payroll (payroll_run_id);
+
 COMMIT;
