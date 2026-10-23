@@ -52,8 +52,23 @@ export function clear(key: string) {
   store.delete(key);
 }
 
-export function clientIp(req: NextRequest): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+/**
+ * The caller's IP address, in a form the caller cannot fake.
+ *
+ * Render is fronted by Cloudflare, which sets CF-Connecting-IP to the address
+ * the request came from and replaces any value the caller sent. Render does
+ * not clear an X-Forwarded-For the caller sent; it appends to it, so only the
+ * entries added by proxies (the last ones) can be trusted, never the first.
+ *
+ * CLIENT_IP_HEADER names a different trusted header if the hosting changes;
+ * GET /api/debug/client-ip shows what a request arrives with.
+ */
+export function clientIp(req: Pick<NextRequest, "headers">): string {
+  const trusted = (process.env.CLIENT_IP_HEADER || "cf-connecting-ip").toLowerCase();
+  const direct = req.headers.get(trusted)?.split(",")[0]?.trim();
+  if (direct) return direct;
+  const forwarded = (req.headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return forwarded[forwarded.length - 1] || "unknown";
 }
 
 export function tooManyRequests(req: NextRequest, retryAfter: number, message: string) {
