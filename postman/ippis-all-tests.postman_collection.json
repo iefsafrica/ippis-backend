@@ -7113,7 +7113,7 @@
     },
     {
       "name": "B. MDA scope, transfers and overview",
-      "description": "Tests for MDA isolation, transfers, the per-MDA overview and the protected public registration flow.\n\nBEFORE YOU START\n1. Run database/transfer-migration.sql on the database the server uses (the other two migrations are already on Neon).\n2. Start the backend with `pnpm dev` (baseUrl defaults to http://localhost:8000).\n3. Set the collection variables adminUsername and adminPassword (your super admin).\n\nRUNNING\nRun the folders in order. Two requests need a sign-in code:\n- 02 needs `otp` (super admin), 10 needs `hrOtp` (the test HR officer). With `pnpm dev` each code is printed in the backend terminal (\"[OTP Email] DEV MODE - OTP for ...\").\nEverything else fills its own variables. Requests 03-05 pick the first two active MDAs and a department in each; set mdaA / mdaB yourself to test with particular MDAs.\n\nWHAT IT WRITES\nThis creates real records on the database behind the server:\n- two test admin accounts (deleted again in folder 7),\n- two test employees, \"Postman MdaA\" and \"Postman MdaB\" (emails postman.mda.a/b.<time>@example.com), one attendance record and two transfer records. These stay; there is no delete endpoint for employees.\nA run is repeatable: each run uses new usernames and emails.",
+      "description": "Tests for MDA isolation, transfers, the per-MDA overview and the protected public registration flow.\n\nBEFORE YOU START\n1. Run database/transfer-migration.sql on the database the server uses (the other two migrations are already on Neon).\n2. Start the backend with `pnpm dev` (baseUrl defaults to http://localhost:8000).\n3. Set the collection variables adminUsername and adminPassword (your super admin).\n\nRUNNING\nRun the folders in order. Two requests need a sign-in code:\n- 02 needs `otp` (super admin), 10 needs `hrOtp` (the test HR officer). With `pnpm dev` each code is printed in the backend terminal (\"[OTP Email] DEV MODE - OTP for ...\").\nEverything else fills its own variables. Requests 03-05 pick the first two active MDAs and a department in each; set mdaA / mdaB yourself to test with particular MDAs.\n\nWHAT IT WRITES\nThis creates real records on the database behind the server:\n- two test admin accounts (deleted again in folder 7),\n- two test employees, \"Postman MdaA\" and \"Postman MdaB\" (emails postman.mda.a/b.<time>@example.com), one attendance record and two transfer records. These stay; there is no delete endpoint for employees.\nA run is repeatable: each run uses new usernames and emails.\n\nRun this part in order from MD01. After re-importing the collection its variables are empty again, so start from MD01.",
       "item": [
         {
           "name": "0. Setup: sign in and create the test users",
@@ -9979,6 +9979,30 @@
               ]
             }
           ]
+        }
+      ],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Stops a request whose variables are still empty, instead of sending broken values",
+              "const setByTheRequest = [\"emailA\", \"emailB\", \"runTag\", \"today\", \"hrUsername\", \"staffUsername\"];",
+              "const text = JSON.stringify(pm.request.toJSON());",
+              "const used = [...new Set([...text.matchAll(/\\{\\{(\\w+)\\}\\}/g)].map(m => m[1]))];",
+              "const empty = used.filter(v => !setByTheRequest.includes(v) && [undefined, null, \"\"].includes(pm.variables.get(v)));",
+              "if (empty.length) {",
+              "  const codes = empty.filter(v => v === \"otp\" || v === \"hrOtp\");",
+              "  const msg = codes.length",
+              "    ? \"Set \" + codes.join(\" and \") + \": copy the sign-in code from the backend terminal into the collection variable.\"",
+              "    : \"Empty variable(s): \" + empty.join(\", \") + \". Run part B in order from MD01: MD03-MD05 choose the MDAs, MD07-MD10 create and sign in the HR officer, and each later request fills what the next ones need.\";",
+              "  pm.test(msg, () => { throw new Error(msg); });",
+              "  if (pm.execution && typeof pm.execution.skipRequest === \"function\") pm.execution.skipRequest();",
+              "  else throw new Error(msg);",
+              "}"
+            ]
+          }
         }
       ]
     },

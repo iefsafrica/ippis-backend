@@ -235,7 +235,10 @@ async function unassignRole(req: NextRequest, ctx: AuthContext, body: any) {
 // ---------------- CREATE ROLE / ASSIGN ROLE ----------------
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as any;
+    const body = (await req.json().catch(() => null)) as any;
+    if (!body || typeof body !== "object") {
+      return withCors(req, { success: false, error: "Send the request body as valid JSON" }, 400);
+    }
     const { action } = body;
 
     if (action === "assign" || action === "unassign") {
@@ -389,7 +392,10 @@ export async function PATCH(req: NextRequest) {
     const auth = await requirePermission(req, "access.roles.manage");
     if (!auth.ok) return auth.response;
 
-    const body = (await req.json()) as any;
+    const body = (await req.json().catch(() => null)) as any;
+    if (!body || typeof body !== "object") {
+      return withCors(req, { success: false, error: "Send the request body as valid JSON" }, 400);
+    }
     const { id, name, description, status, default_scope } = body;
 
     if (!id) return withCors(req, { success: false, error: "Role id is required" }, 400);

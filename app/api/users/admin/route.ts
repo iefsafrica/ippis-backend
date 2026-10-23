@@ -173,7 +173,10 @@ export async function POST(req: NextRequest) {
     if (!auth.ok) return auth.response;
     const ctx = auth.ctx;
 
-    const body = (await req.json()) as any;
+    const body = (await req.json().catch(() => null)) as any;
+    if (!body || typeof body !== "object") {
+      return withCors(req, { success: false, error: "Send the request body as valid JSON" }, 400);
+    }
     const {
       username,
       email,
@@ -360,7 +363,10 @@ export async function PATCH(req: NextRequest) {
     if (!auth.ok) return auth.response;
     const ctx = auth.ctx;
 
-    const body = (await req.json()) as any;
+    const body = (await req.json().catch(() => null)) as any;
+    if (!body || typeof body !== "object") {
+      return withCors(req, { success: false, error: "Send the request body as valid JSON" }, 400);
+    }
     const {
       id,
       username,
