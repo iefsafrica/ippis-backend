@@ -354,13 +354,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"username\": \"{{testUsername}}\",\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"{{testPassword}}\",\n  \"full_name\": \"RBAC Test User\",\n  \"role\": \"admin\",\n  \"reason\": \"RBAC test\"\n}",
+                  "raw": "{\n  \"username\": \"{{testUsername}}\",\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"{{testPassword}}\",\n  \"full_name\": \"RBAC Test User\",\n  \"role\": \"admin\",\n  \"reason\": \"RBAC test\",\n  \"scope_level\": \"global\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
-                }
+                },
+                "description": "The test account is created as a central (all-MDA) account; an account without an MDA must say so."
               },
               "event": [
                 {

@@ -56,17 +56,41 @@ async function loadRoles(roleIds: number[]) {
 }
 
 /**
+ * The scope each role is saved with when it is given through an account: a
+ * role meant for a person's own records (default scope "self", such as the
+ * employee role) stays self; every other role takes the account's scope.
+ * Saving the employee role at an MDA scope would let the person see the whole
+ * MDA's records as if they were their own.
+ */
+export async function scopeForEachRole(roleIds: number[], accountScope: Scope): Promise<Map<number, Scope>> {
+  const out = new Map<number, Scope>();
+  if (roleIds.length === 0) return out;
+  const rows = await sql`SELECT id, default_scope FROM roles WHERE id = ANY(${roleIds}::int[])`;
+  for (const id of roleIds) {
+    const row = rows.find((r: any) => Number(r.id) === id);
+    out.set(id, row?.default_scope === "self" ? { level: "self", companyId: null, departmentId: null } : accountScope);
+  }
+  return out;
+}
+
+/** A key for one role assignment: role and scope. */
+export function assignmentKey(roleId: unknown, companyId: unknown, departmentId: unknown) {
+  return `${roleId}|${companyId ?? ""}|${departmentId ?? ""}`;
+}
+
+/**
  * May the caller give `roleIds` to `targetUserId` in `scope`?
  * targetUserId is null for an account that does not exist yet.
  * With replaceExisting, the target's current roles are being replaced, so
- * only their direct permissions count towards separation of duties.
+ * only their direct permissions count towards separation of duties; with
+ * `replaced`, only those role assignments (see assignmentKey) are.
  */
 export async function checkRoleAssignment(
   ctx: AuthContext,
   targetUserId: string | null,
   roleIds: number[],
   scope: Scope,
-  opts: { replaceExisting?: boolean } = {}
+  opts: { replaceExisting?: boolean; replaced?: Set<string> } = {}
 ): Promise<CheckResult> {
   if (roleIds.length === 0) return { ok: true };
 
@@ -99,7 +123,9 @@ export async function checkRoleAssignment(
   }
 
   const current = targetUserId === null ? [] : await loadGrants(targetUserId);
-  const kept = opts.replaceExisting ? current.filter((g) => g.roleId === null) : current;
+  const kept = opts.replaced
+    ? current.filter((g) => g.roleId === null || !opts.replaced!.has(assignmentKey(g.roleId, g.companyId, g.departmentId)))
+    : opts.replaceExisting ? current.filter((g) => g.roleId === null) : current;
   const added = roles.filter((r) => !r.sod_exempt).flatMap((r) => r.keys);
   if (added.length > 0) {
     const conflicts = await sodConflicts([...new Set([...sodKeys(kept), ...added])]);

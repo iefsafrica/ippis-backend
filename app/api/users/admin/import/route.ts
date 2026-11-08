@@ -5,7 +5,7 @@ import Papa from "papaparse";
 import bcrypt from "bcryptjs";
 import { requirePermission, runAudited, covers, type Scope } from "@/lib/rbac";
 import { sendEmployeeCredentialsEmail } from "@/lib/email";
-import { checkRoleAssignment, scopeFromRequest } from "@/lib/role-grants";
+import { checkRoleAssignment, scopeFromRequest, scopeForEachRole } from "@/lib/role-grants";
 import { generateTemporaryPassword } from "@/lib/password-utils";
 
 export const dynamic = "force-dynamic";
@@ -244,10 +244,13 @@ export async function POST(req: NextRequest) {
         const newId = inserted[0]?.id;
         if (!newId) continue;
 
+        // Self-service roles stay "self"; the others take the account's scope
+        const roleScopes = await scopeForEachRole(r.role_ids, scope);
         for (const roleId of r.role_ids) {
+          const sc = roleScopes.get(roleId)!;
           await db`
             INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, assigned_by, reason)
-            VALUES (${String(newId)}, ${roleId}, ${scope.level}, ${scope.companyId}, ${scope.departmentId}, ${ctx.userId}, ${reason || "Bulk CSV Import"})
+            VALUES (${String(newId)}, ${roleId}, ${sc.level}, ${sc.companyId}, ${sc.departmentId}, ${ctx.userId}, ${reason || "Bulk CSV Import"})
             ON CONFLICT DO NOTHING
           `;
         }

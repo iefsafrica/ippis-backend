@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
+import { scopeFromRequest } from "@/lib/role-grants";
 import {
   authenticate,
   requirePermission,
@@ -229,7 +230,26 @@ export async function POST(req: NextRequest) {
           return withCors(req, { success: false, error: "Permission has no key and cannot be granted" }, 409);
         }
 
-        const resolved = await resolveScope(b.scope_level ?? "self", b.company_id, b.department_id);
+        // With no scope named, the permission takes the account's own MDA or
+        // department. Defaulting to "self" let the user past the permission check
+        // but showed them no records, so the grant looked as if it did nothing.
+        const scopeNamed = b.scope_level !== undefined && b.scope_level !== null && b.scope_level !== "";
+        let resolved;
+        if (scopeNamed) {
+          resolved = await resolveScope(b.scope_level, b.company_id, b.department_id);
+        } else {
+          const [account] = await db`SELECT scope_level, mda_id, department_id FROM admin_users WHERE id::text = ${userId}`;
+          if (!account) {
+            return withCors(req, { success: false, error: "scope_level is required (global, mda, department or self)" }, 400);
+          }
+          resolved = await scopeFromRequest(account.scope_level, account.mda_id, account.department_id);
+          if ("error" in resolved) {
+            return withCors(req, {
+              success: false,
+              error: "The account has no MDA or department to grant this in. Send scope_level (and company_id / department_id).",
+            }, 400);
+          }
+        }
         if ("error" in resolved) {
           return withCors(req, { success: false, error: resolved.error }, 400);
         }
@@ -570,7 +590,10 @@ export async function GET(req: NextRequest) {
      * ALL PERMISSIONS
      */
     const all = await db`
-      SELECT * FROM permissions ORDER BY id ASC
+      SELECT * FROM permissions
+      -- Permissions without a key are not checked anywhere, so they are not offered
+      WHERE key IS NOT NULL AND key <> ''
+      ORDER BY id ASC
     `;
 
     return withCors(req, { success: true, data: all });

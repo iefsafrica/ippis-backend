@@ -377,6 +377,8 @@ export async function GET(req: NextRequest) {
                '[]'::json
              ) AS permissions
       FROM roles r
+      -- Retired roles cannot be assigned, so the list leaves them out unless asked
+      WHERE (${searchParams.get("include_retired") === "true"}::boolean OR r.status = 'active')
       ORDER BY r.id ASC
     `;
     return withCors(req, { success: true, data: roles });
