@@ -76,70 +76,77 @@ export async function GET(req: NextRequest) {
 // POST
 // -------------------------
 export async function POST(req: NextRequest) {
-  const auth = await requirePermission(req, "organization.structure.manage");
-  if (!auth.ok) return auth.response;
-  // A new MDA is outside every MDA-level scope, so creating one needs global scope
-  if (!covers(auth.ctx, "organization.structure.manage", { level: "global", companyId: null, departmentId: null })) {
-    return withCors(req, { success: false, message: 'Creating an MDA needs organisation rights across all MDAs' }, 403);
-  }
-
-  const body = (await req.json().catch(() => ({}))) as CreateCompanyBody;
-
-  const { name, email, phone, status } = body;
-
-  const cleanName = typeof name === 'string' ? name.trim() : '';
-  if (!cleanName) {
-    return withCors(req, { success: false, message: 'Name is required' }, 400);
-  }
-
-  const sameName = await sql`SELECT id FROM companies WHERE LOWER(TRIM(name)) = LOWER(${cleanName}) LIMIT 1`;
-  if (sameName.length > 0) {
-    return withCors(req, { success: false, message: `An MDA called '${cleanName}' already exists` }, 409);
-  }
-
-  // The next code is one above the highest existing "IPPIS-C nnnnn" code.
-  // Codes in other formats (the seeded FMF, OHCSF, ...) are ignored, so they
-  // can no longer make the numbering restart and collide. If another MDA is
-  // created at the same moment and takes the number, try the next one.
-  let result: Record<string, any>[] = [];
-  for (let attempt = 0; attempt < 5 && result.length === 0; attempt++) {
-    const highest = await sql`
-      SELECT COALESCE(MAX(CAST(SUBSTRING(TRIM(company_code) FROM '^IPPIS-C ([0-9]+)$') AS INTEGER)), 0)::int AS n
-      FROM companies
-    `;
-    const newCompanyCode = `IPPIS-C ${String(Number(highest[0]?.n ?? 0) + 1 + attempt).padStart(5, '0')}`;
-    try {
-      result = await sql`
-        INSERT INTO companies (company_code, name, email, phone, status, created_at)
-        VALUES (
-          ${newCompanyCode},
-          ${cleanName},
-          ${email ?? null},
-          ${phone ?? null},
-          ${status ?? 'active'},
-          NOW()
-        )
-        RETURNING *
-      `;
-    } catch (error: any) {
-      if (error?.code !== '23505') throw error;
+  try {
+    const auth = await requirePermission(req, "organization.structure.manage");
+    if (!auth.ok) return auth.response;
+    // A new MDA is outside every MDA-level scope, so creating one needs global scope
+    if (!covers(auth.ctx, "organization.structure.manage", { level: "global", companyId: null, departmentId: null })) {
+      return withCors(req, { success: false, message: 'Creating an MDA needs organisation rights across all MDAs' }, 403);
     }
+
+    const body = (await req.json().catch(() => ({}))) as CreateCompanyBody;
+
+    const { name, email, phone, status } = body;
+
+    const cleanName = typeof name === 'string' ? name.trim() : '';
+    if (!cleanName) {
+      return withCors(req, { success: false, message: 'Name is required' }, 400);
+    }
+
+    const sameName = await sql`SELECT id FROM companies WHERE LOWER(TRIM(name)) = LOWER(${cleanName}) LIMIT 1`;
+    if (sameName.length > 0) {
+      return withCors(req, { success: false, message: `An MDA called '${cleanName}' already exists` }, 409);
+    }
+
+    // The next code is one above the highest existing "IPPIS-C nnnnn" code.
+    // Codes in other formats (the seeded FMF, OHCSF, ...) are ignored, so they
+    // can no longer make the numbering restart and collide. If another MDA is
+    // created at the same moment and takes the number, try the next one.
+    let result: Record<string, any>[] = [];
+    for (let attempt = 0; attempt < 5 && result.length === 0; attempt++) {
+      const highest = await sql`
+        SELECT COALESCE(MAX(CAST(SUBSTRING(TRIM(company_code) FROM '^IPPIS-C ([0-9]+)$') AS INTEGER)), 0)::int AS n
+        FROM companies
+      `;
+      const newCompanyCode = `IPPIS-C ${String(Number(highest[0]?.n ?? 0) + 1 + attempt).padStart(5, '0')}`;
+      try {
+        result = await sql`
+          INSERT INTO companies (company_code, name, email, phone, status, created_at)
+          VALUES (
+            ${newCompanyCode},
+            ${cleanName},
+            ${email ?? null},
+            ${phone ?? null},
+            ${status ?? 'active'},
+            NOW()
+          )
+          RETURNING *
+        `;
+      } catch (error: any) {
+        if (error?.code !== '23505') throw error;
+      }
+    }
+
+    const inserted = result[0] as Company | undefined;
+
+    if (!inserted) {
+      return withCors(req, { success: false, message: 'Failed to create company' }, 500);
+    }
+
+    await runAudited(req, auth.ctx, {
+      action: "organization.company.created",
+      targetType: "organization.company",
+      targetId: inserted.id,
+      details: { name: inserted.name, company_code: inserted.company_code },
+    }, []);
+
+    return withCors(req, { success: true, data: inserted });
+  } catch (error) {
+    // Answer with a readable error (and CORS headers) instead of an unhandled 500,
+    // which the browser reports as a CORS failure
+    console.error('CREATE MDA ERROR:', error);
+    return withCors(req, { success: false, message: 'Failed to create the MDA' }, 500);
   }
-
-  const inserted = result[0] as Company | undefined;
-
-  if (!inserted) {
-    return withCors(req, { success: false, message: 'Failed to create company' }, 500);
-  }
-
-  await runAudited(req, auth.ctx, {
-    action: "organization.company.created",
-    targetType: "organization.company",
-    targetId: inserted.id,
-    details: { name: inserted.name, company_code: inserted.company_code },
-  }, []);
-
-  return withCors(req, { success: true, data: inserted });
 }
 
 // -------------------------
