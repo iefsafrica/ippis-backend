@@ -18,7 +18,7 @@ import {
   UserRoleRecord,
 } from "@/lib/user-management";
 import { sendEmployeeCredentialsEmail } from "@/lib/email";
-import { checkRoleAssignment, scopeFromRequest } from "@/lib/role-grants";
+import { checkRoleAssignment, scopeFromRequest, scopeForEachRole, assignmentKey } from "@/lib/role-grants";
 import { generateTemporaryPassword, validatePasswordStrength } from "@/lib/password-utils";
 
 export const dynamic = "force-dynamic";
@@ -285,11 +285,14 @@ export async function POST(req: NextRequest) {
       newUser.staff_id = autoStaffId;
     }
 
-    // Assign roles in user_roles (already checked above)
+    // Assign roles in user_roles (already checked above); self-service roles
+    // stay "self", the others take the account's scope
+    const roleScopes = await scopeForEachRole(roleIdList, scope);
     for (const rId of roleIdList) {
+      const sc = roleScopes.get(rId)!;
       await db`
         INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, assigned_by, reason)
-        VALUES (${String(newUserId)}, ${rId}, ${verifiedScope.scope_level}, ${verifiedScope.company_id}, ${verifiedScope.department_id}, ${ctx.userId}, ${notes || "Initial account creation"})
+        VALUES (${String(newUserId)}, ${rId}, ${sc.level}, ${sc.companyId}, ${sc.departmentId}, ${ctx.userId}, ${notes || "Initial account creation"})
         ON CONFLICT DO NOTHING
       `;
     }
@@ -429,9 +432,17 @@ export async function PATCH(req: NextRequest) {
         validPatchScope.company_id !== (existing.mda_id == null ? null : Number(existing.mda_id)) ||
         validPatchScope.department_id !== (existing.department_id == null ? null : Number(existing.department_id)));
 
-    const currentRoleIds = (await db`SELECT DISTINCT role_id FROM user_roles WHERE user_id = ${targetIdStr}`)
-      .map((r: any) => Number(r.role_id))
-      .sort((a: number, b: number) => a - b);
+    // The roles this account manages: no end date, and in the account's own MDA or
+    // department (or with no MDA). Temporary access, and roles held in another MDA
+    // or department, are left as they are.
+    const oldCompany = existing.mda_id == null ? null : Number(existing.mda_id);
+    const oldDepartment = existing.department_id == null ? null : Number(existing.department_id);
+    const managedRoles = await db`
+      SELECT role_id, company_id, department_id FROM user_roles
+      WHERE user_id = ${targetIdStr} AND expires_at IS NULL
+        AND (company_id IS NULL OR (company_id = ${oldCompany}::int AND (department_id IS NULL OR department_id = ${oldDepartment}::int)))
+    `;
+    const currentRoleIds = [...new Set(managedRoles.map((r: any) => Number(r.role_id)))].sort((a, b) => a - b);
     const requestedRoleIds: number[] | null = Array.isArray(role_ids)
       ? [...new Set(role_ids.map(Number).filter((n: number) => Number.isInteger(n) && n > 0))].sort((a, b) => a - b)
       : null;
@@ -444,11 +455,25 @@ export async function PATCH(req: NextRequest) {
     if (scopeChanged && !covers(ctx, MANAGE, newScope)) {
       return withCors(req, { success: false, error: "You can only move accounts within your organisational scope" }, 403);
     }
-    // Roles are re-saved with the account's scope, so check them when either changes
-    if (requestedRoleIds !== null && (rolesChanged || scopeChanged)) {
-      const roleCheck = await checkRoleAssignment(ctx, targetIdStr, requestedRoleIds, newScope, { replaceExisting: true });
+    // The account's roles are saved with its scope, so when the account moves to
+    // another MDA or department its roles move with it, even if role_ids is not sent
+    const rolesToSave: number[] | null = requestedRoleIds ?? (scopeChanged ? currentRoleIds : null);
+    const replaced = new Set(managedRoles.map((r: any) => assignmentKey(r.role_id, r.company_id, r.department_id)));
+    if (rolesToSave !== null && (rolesChanged || scopeChanged)) {
+      const roleCheck = await checkRoleAssignment(ctx, targetIdStr, rolesToSave, newScope, { replaced });
       if (!roleCheck.ok) {
         return withCors(req, { success: false, error: roleCheck.error, conflicts: roleCheck.conflicts }, roleCheck.status);
+      }
+    }
+    // Direct permissions move with the account too; privileged ones need the right to grant them
+    if (scopeChanged && !can(ctx, "access.privileged.grant")) {
+      const [privileged] = await db`
+        SELECT COUNT(*)::int AS n FROM user_permissions up JOIN permissions p ON p.id = up.permission_id
+        WHERE up.user_id = ${targetIdStr} AND p.is_privileged AND up.expires_at IS NULL AND up.scope_level IN ('mda', 'department')
+          AND up.company_id = ${oldCompany}::int AND (up.department_id IS NULL OR up.department_id = ${oldDepartment}::int)
+      `;
+      if ((privileged?.n ?? 0) > 0) {
+        return withCors(req, { success: false, error: "This account holds privileged permissions; moving it needs access.privileged.grant" }, 403);
       }
     }
 
@@ -529,15 +554,32 @@ export async function PATCH(req: NextRequest) {
       RETURNING *
     `;
 
-    // Replace role assignments (already checked above) in one transaction
-    if (requestedRoleIds !== null && (rolesChanged || scopeChanged)) {
+    // Replace the account's own role assignments (already checked above) in one
+    // transaction; self-service roles stay "self", the others take the account's scope
+    if (rolesToSave !== null && (rolesChanged || scopeChanged)) {
+      const scopes = await scopeForEachRole(rolesToSave, newScope);
       await db.transaction([
-        db`DELETE FROM user_roles WHERE user_id = ${targetIdStr}`,
-        ...requestedRoleIds.map((rId) => db`
-          INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, assigned_by, reason)
-          VALUES (${targetIdStr}, ${rId}, ${validPatchScope.scope_level}, ${validPatchScope.company_id}, ${validPatchScope.department_id}, ${ctx.userId}, ${reason || "Role update"})
-          ON CONFLICT DO NOTHING
-        `),
+        db`
+          DELETE FROM user_roles
+          WHERE user_id = ${targetIdStr} AND expires_at IS NULL
+            AND (company_id IS NULL OR (company_id = ${oldCompany}::int AND (department_id IS NULL OR department_id = ${oldDepartment}::int)))
+        `,
+        ...rolesToSave.map((rId) => {
+          const sc = scopes.get(rId)!;
+          return db`
+            INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, assigned_by, reason)
+            VALUES (${targetIdStr}, ${rId}, ${sc.level}, ${sc.companyId}, ${sc.departmentId}, ${ctx.userId}, ${reason || "Role update"})
+            ON CONFLICT DO NOTHING
+          `;
+        }),
+        // Direct permissions given for the account's old MDA or department move with it
+        db`
+          UPDATE user_permissions
+          SET scope_level = ${newScope.level}, company_id = ${newScope.companyId}, department_id = ${newScope.departmentId}
+          WHERE user_id = ${targetIdStr} AND ${scopeChanged}::boolean AND expires_at IS NULL
+            AND scope_level IN ('mda', 'department')
+            AND company_id = ${oldCompany}::int AND (department_id IS NULL OR department_id = ${oldDepartment}::int)
+        `,
       ]);
     }
 

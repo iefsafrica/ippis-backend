@@ -7,7 +7,7 @@ import {
   loadUserRolesMap,
   UserRoleRecord,
 } from "@/lib/user-management";
-import { checkRoleAssignment, checkRoleRevocation, scopeFromRequest } from "@/lib/role-grants";
+import { checkRoleAssignment, checkRoleRevocation, scopeFromRequest, scopeForEachRole } from "@/lib/role-grants";
 import type { Scope } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -186,7 +186,8 @@ export async function POST(req: NextRequest) {
       try {
         const uidStr = String(item.user.id);
         if (effectiveAction === "assign") {
-          const scope = item.scope!;
+          // A self-service role stays "self"; any other role takes the account's scope
+          const scope = (await scopeForEachRole([targetRoleId], item.scope!)).get(targetRoleId)!;
           await db`
             INSERT INTO user_roles (user_id, role_id, scope_level, company_id, department_id, assigned_by, reason)
             VALUES (
