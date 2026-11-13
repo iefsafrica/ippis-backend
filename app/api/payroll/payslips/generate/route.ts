@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
     // 3. Fetch latest salary structure for each employee on or before payment date
     const salaryRows = await sql`
       SELECT DISTINCT ON (ep.employee_id)
-        ep.employee_id,
+        ep.employee_id::text AS employee_id,
         ep.basic_salary,
         ep.house_rent_allowance,
         ep.medical_allowance,
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
         ep.health_insurance,
         ep.loan_deduction
       FROM employee_payments ep
-      WHERE (ep.employee_id = ANY(${staffIds}::text[]) OR ep.employee_id = ANY(${regIds}::text[]))
+      WHERE (ep.employee_id::text = ANY(${staffIds}::text[]) OR ep.employee_id::text = ANY(${regIds}::text[]))
         AND (ep.payment_date IS NULL OR ep.payment_date::date <= ${paymentDate}::date)
       ORDER BY ep.employee_id, ep.payment_date DESC NULLS LAST, ep.created_at DESC NULLS LAST
     `;
@@ -284,3 +284,4 @@ export async function POST(req: NextRequest) {
     return withCors(req, { success: false, error: "Failed to generate payslips", details: error?.message }, 500);
   }
 }
+

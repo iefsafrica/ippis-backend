@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN employment_info ei ON ei.registration_id = e.registration_id
       LEFT JOIN LATERAL (
         SELECT * FROM employee_payments s
-        WHERE (s.employee_id = e.id OR s.employee_id = e.registration_id)
+        WHERE s.employee_id::text IN (e.id::text, COALESCE(e.registration_id::text, ''))
           AND (s.payment_date IS NULL OR s.payment_date::date <= p.payment_date::date)
         ORDER BY s.payment_date DESC NULLS LAST, s.created_at DESC NULLS LAST
         LIMIT 1

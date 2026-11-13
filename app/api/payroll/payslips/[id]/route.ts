@@ -77,7 +77,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
       LEFT JOIN personal_info pi ON pi.registration_id = e.registration_id
       LEFT JOIN LATERAL (
         SELECT * FROM employee_payments s
-        WHERE (s.employee_id = e.id OR s.employee_id = e.registration_id)
+        WHERE s.employee_id::text IN (e.id::text, COALESCE(e.registration_id::text, ''))
           AND (s.payment_date IS NULL OR s.payment_date::date <= p.payment_date::date)
         ORDER BY s.payment_date DESC NULLS LAST, s.created_at DESC NULLS LAST
         LIMIT 1
@@ -128,7 +128,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
       FROM payroll p
       LEFT JOIN LATERAL (
         SELECT provident_fund, income_tax FROM employee_payments s
-        WHERE (s.employee_id = p.employee_id)
+        WHERE s.employee_id::text = p.employee_id::text
         ORDER BY s.payment_date DESC NULLS LAST LIMIT 1
       ) ep ON TRUE
       WHERE p.employee_id = ${row.employee_id}
@@ -192,3 +192,4 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     return withCors(req, { success: false, error: "Failed to fetch payslip details", details: error?.message }, 500);
   }
 }
+
