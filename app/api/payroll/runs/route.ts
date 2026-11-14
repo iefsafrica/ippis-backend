@@ -4,6 +4,7 @@ import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited, readReason, type AuthContext } from "@/lib/rbac";
 import { recordScope } from "@/lib/mda-scope";
 import { notifyMany } from "@/lib/employee-notifications";
+import { createAdminNotification } from "@/lib/admin-notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -162,6 +163,15 @@ export async function POST(req: NextRequest) {
           `,
         ]
       );
+
+      await createAdminNotification({
+        title: "Payroll Run Prepared",
+        message: `Payroll for ${mda.name} (${period}) prepared for ${included.length} employee(s) totalling ₦${total.toLocaleString()}. Awaiting approval.`,
+        type: "payroll",
+        actionUrl: `/admin/payroll/runs?id=${(created as any[])[0]?.id || ""}`,
+        mdaId: companyId,
+      });
+
       return withCors(req, { success: true, message: `Payroll prepared for ${included.length} employee(s); it now needs approval`, data: { ...(created as any[])[0], skipped } }, 201);
     } catch (error: any) {
       if (error?.code === "23505") return withCors(req, { success: false, error: "This MDA already has a payroll run for that month" }, 409);
@@ -201,6 +211,15 @@ export async function PATCH(req: NextRequest) {
         db`UPDATE payroll_runs SET status = 'rejected', decided_by = ${auth.ctx.user.username}, decided_at = NOW(), decision_note = ${note} WHERE id = ${id} AND status = 'prepared'`,
         db`DELETE FROM payroll WHERE payroll_run_id = ${id} AND status = 'pending'`,
       ]);
+
+      await createAdminNotification({
+        title: "Payroll Run Rejected",
+        message: `Payroll run #${id} for period ${run.period} was rejected: ${note}.`,
+        type: "warning",
+        actionUrl: `/admin/payroll/runs?id=${id}`,
+        mdaId: run.company_id,
+      });
+
       return withCors(req, { success: true, message: "Payroll run rejected; it can be prepared again" });
     }
 
@@ -225,6 +244,15 @@ export async function PATCH(req: NextRequest) {
       link: `/employee/payslips/${row.payment_id}`,
       dedupeKey: `payslip:${row.payment_id}`,
     })));
+
+    await createAdminNotification({
+      title: "Payroll Run Approved",
+      message: `Payroll run #${id} (${run.period}) approved. ${released.length} payslip(s) released.`,
+      type: "payroll",
+      actionUrl: `/admin/payroll/runs?id=${id}`,
+      mdaId: run.company_id,
+    });
+
     return withCors(req, { success: true, message: `Payroll run approved: ${released.length} payslip(s) released` });
   } catch (error) {
     console.error("DECIDE PAYROLL RUN ERROR:", error);

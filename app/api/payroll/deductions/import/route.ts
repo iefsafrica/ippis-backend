@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission, runAudited } from "@/lib/rbac";
 import { recordScope, inScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
+import { createAdminNotification } from "@/lib/admin-notifications";
 import Papa from "papaparse";
 
 export const dynamic = "force-dynamic";
@@ -446,6 +447,13 @@ export async function POST(req: NextRequest) {
       },
       []
     );
+
+    await createAdminNotification({
+      title: "Payroll Deductions Imported",
+      message: `Successfully imported ${validDeductions.length} deduction(s) totalling ₦${totalAmount.toLocaleString()} for period ${defaultPeriod}.`,
+      type: "payroll",
+      actionUrl: "/admin/payroll/deductions",
+    });
 
     return withCors(
       req,

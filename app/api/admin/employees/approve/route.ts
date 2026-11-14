@@ -6,6 +6,7 @@ import { registrationInScope, OUT_OF_SCOPE } from "@/lib/mda-scope"
 import { inviteToPortal } from "@/lib/employee-invite"
 import { linkEmployeeToMda } from "@/lib/employee-mda"
 import { sendEmployeeApprovalEmail } from "@/lib/email"
+import { createAdminNotification } from "@/lib/admin-notifications"
 
 export const dynamic = "force-dynamic"
 
@@ -158,6 +159,13 @@ export async function POST(req: NextRequest) {
       targetId: registrationId,
       details: { employeeId },
     }, [])
+
+    await createAdminNotification({
+      title: "Employee Approved",
+      message: `${name} has been approved and added to active employees as ${position}.`,
+      type: "approval",
+      actionUrl: `/admin/employees/${employeeId}`,
+    });
 
     return withCors(req, {
       success: true,

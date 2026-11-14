@@ -21,7 +21,8 @@ export async function PATCH(
       return withCors(req, { success: false, error: "Unauthorized" }, 401);
     }
     const resolvedParams = await params;
-    const numId = parseInt(resolvedParams.id, 10);
+    const cleanId = String(resolvedParams.id || "").replace(/^notif_/, "");
+    const numId = parseInt(cleanId, 10);
     if (isNaN(numId)) {
       return withCors(req, { success: false, error: "Invalid notification ID" }, 400);
     }
@@ -37,7 +38,7 @@ export async function PATCH(
 
     return withCors(req, {
       success: true,
-      message: `Notification ${numId} marked as ${read ? "read" : "unread"}`,
+      message: `Notification ${resolvedParams.id} marked as ${read ? "read" : "unread"}`,
     });
   } catch (err: any) {
     console.error("PATCH /api/admin/notifications/[id] error:", err);
@@ -64,7 +65,8 @@ export async function DELETE(
       return withCors(req, { success: false, error: "Unauthorized" }, 401);
     }
     const resolvedParams = await params;
-    const numId = parseInt(resolvedParams.id, 10);
+    const cleanId = String(resolvedParams.id || "").replace(/^notif_/, "");
+    const numId = parseInt(cleanId, 10);
     if (isNaN(numId)) {
       return withCors(req, { success: false, error: "Invalid notification ID" }, 400);
     }
@@ -76,7 +78,7 @@ export async function DELETE(
 
     return withCors(req, {
       success: true,
-      message: `Notification ${numId} deleted`,
+      message: `Notification ${resolvedParams.id} deleted`,
     });
   } catch (err: any) {
     console.error("DELETE /api/admin/notifications/[id] error:", err);

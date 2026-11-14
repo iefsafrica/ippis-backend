@@ -10,6 +10,7 @@ import {
 import { generateRegistrationId } from "@/lib/register-utils";
 import { isApprovedApplication, submittedEmail, APPROVED_LOCKED } from "@/lib/registration-lock";
 import { registrationAccess, issueRegistrationToken, continueLink } from "@/lib/registration-token";
+import { createAdminNotification } from "@/lib/admin-notifications";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -301,6 +302,14 @@ export async function POST(req: NextRequest) {
     await upsertPendingEmployee({
       registrationId: registrationRow.registration_id,
       body,
+    });
+
+    // Notify admins of new registration awaiting review
+    await createAdminNotification({
+      title: "New Employee Registration",
+      message: `${firstname} ${surname} registered and is awaiting approval.`,
+      type: "registration",
+      actionUrl: "/admin/pending",
     });
 
     // A new application gets its private continue link; it goes to the

@@ -14,40 +14,29 @@ export async function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const authResult = await authenticate(req);
   if (!authResult.ok) return withCors(req, { success: false, error: "Unauthorized" }, 401);
-  return handleMarkAll(req);
+  return handleMarkAll(req, authResult.ctx.user.id);
 }
 
 export async function PATCH(req: NextRequest) {
   const authResult = await authenticate(req);
   if (!authResult.ok) return withCors(req, { success: false, error: "Unauthorized" }, 401);
-  return handleMarkAll(req);
+  return handleMarkAll(req, authResult.ctx.user.id);
 }
 
 export async function PUT(req: NextRequest) {
   const authResult = await authenticate(req);
   if (!authResult.ok) return withCors(req, { success: false, error: "Unauthorized" }, 401);
-  return handleMarkAll(req);
+  return handleMarkAll(req, authResult.ctx.user.id);
 }
 
-async function handleMarkAll(req: NextRequest) {
+async function handleMarkAll(req: NextRequest, userId: number) {
   try {
-    const authResult = await authenticate(req);
-    const userId = authResult.ok ? authResult.ctx.user.id : null;
-
-    if (userId) {
-      await sql`
-        UPDATE dashboard_notifications
-        SET is_read = true
-        WHERE is_read = false
-          AND (recipient_id IS NULL OR recipient_id = ${userId})
-      `;
-    } else {
-      await sql`
-        UPDATE dashboard_notifications
-        SET is_read = true
-        WHERE is_read = false
-      `;
-    }
+    await sql`
+      UPDATE dashboard_notifications
+      SET is_read = true
+      WHERE is_read = false
+        AND (recipient_id IS NULL OR recipient_id = ${userId})
+    `;
 
     return withCors(req, {
       success: true,

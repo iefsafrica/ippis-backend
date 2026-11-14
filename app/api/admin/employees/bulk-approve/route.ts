@@ -6,6 +6,7 @@ import { registrationsOutOfScope, OUT_OF_SCOPE } from "@/lib/mda-scope"
 import { inviteToPortal } from "@/lib/employee-invite"
 import { linkEmployeeToMda } from "@/lib/employee-mda"
 import { sendEmployeeApprovalEmail } from "@/lib/email"
+import { createAdminNotification } from "@/lib/admin-notifications"
 
 export const dynamic = "force-dynamic"
 
@@ -156,6 +157,15 @@ export async function POST(req: NextRequest) {
       targetId: null,
       details: { approved: results.success, failed: results.failed },
     }, [])
+
+    if (results.success.length > 0) {
+      await createAdminNotification({
+        title: "Bulk Employees Approved",
+        message: `Successfully approved ${results.success.length} employee registration(s).`,
+        type: "approval",
+        actionUrl: "/admin/employees",
+      });
+    }
 
     return withCors(req, {
       success: true,

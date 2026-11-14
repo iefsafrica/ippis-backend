@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 import { isApprovedApplication, APPROVED_LOCKED } from "@/lib/registration-lock";
 import { registrationAccess } from "@/lib/registration-token";
+import { createAdminNotification } from "@/lib/admin-notifications";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -122,6 +123,13 @@ export async function POST(req: NextRequest) {
         ${uploadDate}
       ) RETURNING *;
     `;
+
+    await createAdminNotification({
+      title: "Document Uploaded",
+      message: `New verification documents uploaded for registration ${registrationId}. Awaiting review.`,
+      type: "document",
+      actionUrl: "/admin/documents",
+    });
 
     return withCors(req, {
       success: true,

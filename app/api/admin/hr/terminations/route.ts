@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
 import { keepInScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 import { sendTerminationEmail } from "@/lib/email";
+import { createAdminNotification } from "@/lib/admin-notifications";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -217,6 +218,13 @@ export async function POST(req: NextRequest) {
       });
       emailSent = true;
     }
+
+    await createAdminNotification({
+      title: "Employee Terminated",
+      message: `${employee_name || employee_id} (${position || "Officer"}) terminated: ${termination_reason}.`,
+      type: "warning",
+      actionUrl: "/admin/hr/terminations",
+    });
 
     return withCors(req, {
       success: true,

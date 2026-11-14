@@ -17,43 +17,82 @@ export async function GET(req: NextRequest) {
     const userId = authResult.ok ? authResult.ctx.user.id : null;
 
     const { searchParams } = new URL(req.url);
-    const limitParam = parseInt(searchParams.get("limit") || "50", 10);
+    const limitParam = parseInt(searchParams.get("limit") || "20", 10);
     const limit = Math.min(Math.max(limitParam, 1), 100);
     const unreadOnly = searchParams.get("unread") === "true";
 
-    const rows = userId
-      ? await sql`
-          SELECT id, title, message, type, is_read, recipient_id, created_at, expires_at, action_url
+    // Determine MDA scoping if user is authenticated
+    const isGlobal =
+      !authResult.ok ||
+      authResult.ctx.grants.some((g: any) => g.level === "global") ||
+      authResult.ctx.grants.length === 0;
+
+    const companyIds: number[] = authResult.ok
+      ? authResult.ctx.grants
+          .map((g: any) => g.companyId)
+          .filter((c: any): c is number => c !== null && Number.isInteger(c))
+      : [];
+
+    let rows: any[] = [];
+    let countRows: any[] = [];
+
+    if (userId) {
+      if (isGlobal || companyIds.length === 0) {
+        rows = await sql`
+          SELECT id, title, message, type, is_read, recipient_id, mda_id, created_at, expires_at, action_url
           FROM dashboard_notifications
           WHERE (recipient_id IS NULL OR recipient_id = ${userId})
             AND (expires_at IS NULL OR expires_at > NOW())
             ${unreadOnly ? sql`AND is_read = false` : sql``}
           ORDER BY created_at DESC
           LIMIT ${limit}
-        `
-      : await sql`
-          SELECT id, title, message, type, is_read, recipient_id, created_at, expires_at, action_url
-          FROM dashboard_notifications
-          WHERE (expires_at IS NULL OR expires_at > NOW())
-            ${unreadOnly ? sql`AND is_read = false` : sql``}
-          ORDER BY created_at DESC
-          LIMIT ${limit}
         `;
 
-    const countRows = userId
-      ? await sql`
+        countRows = await sql`
           SELECT count(*)::int as unread_count
           FROM dashboard_notifications
           WHERE is_read = false
             AND (recipient_id IS NULL OR recipient_id = ${userId})
             AND (expires_at IS NULL OR expires_at > NOW())
-        `
-      : await sql`
+        `;
+      } else {
+        rows = await sql`
+          SELECT id, title, message, type, is_read, recipient_id, mda_id, created_at, expires_at, action_url
+          FROM dashboard_notifications
+          WHERE (recipient_id IS NULL OR recipient_id = ${userId})
+            AND (mda_id IS NULL OR mda_id = ANY(${companyIds}))
+            AND (expires_at IS NULL OR expires_at > NOW())
+            ${unreadOnly ? sql`AND is_read = false` : sql``}
+          ORDER BY created_at DESC
+          LIMIT ${limit}
+        `;
+
+        countRows = await sql`
           SELECT count(*)::int as unread_count
           FROM dashboard_notifications
           WHERE is_read = false
+            AND (recipient_id IS NULL OR recipient_id = ${userId})
+            AND (mda_id IS NULL OR mda_id = ANY(${companyIds}))
             AND (expires_at IS NULL OR expires_at > NOW())
         `;
+      }
+    } else {
+      rows = await sql`
+        SELECT id, title, message, type, is_read, recipient_id, mda_id, created_at, expires_at, action_url
+        FROM dashboard_notifications
+        WHERE (expires_at IS NULL OR expires_at > NOW())
+          ${unreadOnly ? sql`AND is_read = false` : sql``}
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `;
+
+      countRows = await sql`
+        SELECT count(*)::int as unread_count
+        FROM dashboard_notifications
+        WHERE is_read = false
+          AND (expires_at IS NULL OR expires_at > NOW())
+      `;
+    }
 
     const unreadCount = (countRows[0] as any)?.unread_count ?? 0;
 
@@ -68,6 +107,8 @@ export async function GET(req: NextRequest) {
       created_at: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
       recipientId: r.recipient_id,
       recipient_id: r.recipient_id,
+      mdaId: r.mda_id,
+      mda_id: r.mda_id,
       expiresAt: r.expires_at,
       actionUrl: r.action_url,
       action_url: r.action_url,
@@ -75,8 +116,8 @@ export async function GET(req: NextRequest) {
 
     return withCors(req, {
       success: true,
-      notifications,
       unreadCount,
+      notifications,
       total: notifications.length,
     });
   } catch (err: any) {
@@ -92,23 +133,40 @@ export async function POST(req: NextRequest) {
       return withCors(req, { success: false, error: "Unauthorized" }, 401);
     }
     const body = (await req.json().catch(() => ({}))) as any;
+
+    // Check if this is a markAll call posted to /api/admin/notifications
+    if (body.markAll) {
+      const userId = authResult.ctx.user.id;
+      await sql`
+        UPDATE dashboard_notifications
+        SET is_read = true
+        WHERE is_read = false
+          AND (recipient_id IS NULL OR recipient_id = ${userId})
+      `;
+      return withCors(req, { success: true, message: "All notifications marked as read" });
+    }
+
     const {
       title,
       message,
       type = "info",
       recipient_id = null,
+      mda_id = null,
       action_url = null,
+      actionUrl = null,
       expires_at = null,
     } = body;
+
+    const finalActionUrl = actionUrl || action_url;
 
     if (!title || !message) {
       return withCors(req, { success: false, error: "Title and message are required" }, 400);
     }
 
     const inserted = await sql`
-      INSERT INTO dashboard_notifications (title, message, type, recipient_id, action_url, expires_at)
-      VALUES (${title}, ${message}, ${type}, ${recipient_id}, ${action_url}, ${expires_at})
-      RETURNING id, title, message, type, is_read, recipient_id, created_at, action_url
+      INSERT INTO dashboard_notifications (title, message, type, recipient_id, mda_id, action_url, expires_at)
+      VALUES (${title}, ${message}, ${type}, ${recipient_id}, ${mda_id}, ${finalActionUrl}, ${expires_at})
+      RETURNING id, title, message, type, is_read, recipient_id, mda_id, created_at, action_url
     `;
 
     const r = inserted[0] as any;
@@ -125,6 +183,7 @@ export async function POST(req: NextRequest) {
       createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
       created_at: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
       recipientId: r.recipient_id,
+      mdaId: r.mda_id,
       actionUrl: r.action_url,
     };
 
@@ -143,18 +202,21 @@ export async function PATCH(req: NextRequest) {
     }
     const body = (await req.json().catch(() => ({}))) as any;
     const { id, markAll, read = true } = body;
+    const userId = authResult.ctx.user.id;
 
     if (markAll) {
       await sql`
         UPDATE dashboard_notifications
         SET is_read = true
         WHERE is_read = false
+          AND (recipient_id IS NULL OR recipient_id = ${userId})
       `;
       return withCors(req, { success: true, message: "All notifications marked as read" });
     }
 
     if (id) {
-      const numId = parseInt(String(id), 10);
+      const cleanId = String(id).replace(/^notif_/, "");
+      const numId = parseInt(cleanId, 10);
       if (isNaN(numId)) {
         return withCors(req, { success: false, error: "Invalid notification ID" }, 400);
       }
@@ -184,7 +246,8 @@ export async function DELETE(req: NextRequest) {
     if (!idParam) {
       return withCors(req, { success: false, error: "Missing id parameter" }, 400);
     }
-    const numId = parseInt(idParam, 10);
+    const cleanId = idParam.replace(/^notif_/, "");
+    const numId = parseInt(cleanId, 10);
     if (isNaN(numId)) {
       return withCors(req, { success: false, error: "Invalid id parameter" }, 400);
     }

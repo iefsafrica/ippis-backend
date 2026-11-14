@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac";
 import { recordScope, inScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 import { clientIp } from "@/lib/rate-limit";
 import { sendTerminationEmail } from "@/lib/email";
+import { createAdminNotification } from "@/lib/admin-notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -473,6 +474,20 @@ async function handleUpdateEmployee(req: NextRequest, props: { params: Promise<{
           console.error("Automated status termination email failed:", err);
         });
       }
+
+      await createAdminNotification({
+        title: "Employee Terminated",
+        message: `${newFullName || current.firstname} (${currentRow.id}) marked as terminated: ${reason}.`,
+        type: "warning",
+        actionUrl: `/admin/employees/${currentRow.id}`,
+      });
+    } else if (changes.length > 0) {
+      await createAdminNotification({
+        title: "Employee Record Updated",
+        message: `Record for ${newFullName || current.firstname} (${currentRow.id}) was updated (${changes.map((c: any) => c.field).join(", ")}).`,
+        type: "info",
+        actionUrl: `/admin/employees/${currentRow.id}`,
+      });
     }
 
     // Re-fetch updated employee
