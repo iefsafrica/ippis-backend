@@ -848,6 +848,222 @@ Federal Republic of Nigeria`;
   }
 }
 
+/**
+ * =========================================================================
+ * EMPLOYEE TERMINATION NOTIFICATION EMAILS (HTML)
+ * =========================================================================
+ */
+
+export interface TerminationEmailPayload {
+  to: string;
+  fullName: string;
+  employeeId: string;
+  position?: string | undefined;
+  department?: string | undefined;
+  mdaName?: string | undefined;
+  terminationType?: string | undefined; // "standard" | "with_cause" | "redundancy" | "probation" | string
+  terminationReason?: string | undefined;
+  terminationDate: string; // YYYY-MM-DD
+  noticePeriod?: string | undefined;
+  hrContactEmail?: string | undefined;
+  handoverOfficer?: string | undefined;
+}
+
+export function formatTerminationTypeLabel(type?: string): string {
+  if (!type) return "Standard Termination of Appointment";
+  const lower = type.toLowerCase().replace(/[\s-]+/g, "_");
+  if (lower.includes("cause") || lower.includes("misconduct") || lower.includes("disciplinary")) {
+    return "Termination with Cause / Disciplinary";
+  }
+  if (lower.includes("redund") || lower.includes("restructur")) {
+    return "Redundancy / Structural Realignment";
+  }
+  if (lower.includes("probat") || lower.includes("confirm")) {
+    return "Non-Confirmation of Probation";
+  }
+  if (lower.includes("contract") || lower.includes("fixed")) {
+    return "Expiration of Fixed-Term Contract";
+  }
+  return type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, " ");
+}
+
+function generateTerminationEmailHtml(payload: TerminationEmailPayload): string {
+  const {
+    fullName,
+    employeeId,
+    position = "Civil Service Officer",
+    department = "Federal Service",
+    mdaName = "Federal Public Service",
+    terminationType = "Standard Termination",
+    terminationReason,
+    terminationDate,
+    noticePeriod,
+    hrContactEmail = "support@ippis.gov.ng",
+  } = payload;
+
+  const typeLabel = formatTerminationTypeLabel(terminationType);
+  const isDisciplinary = terminationType.toLowerCase().includes("cause") || terminationType.toLowerCase().includes("misconduct");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Official Notice of Termination of Employment - IPPIS</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 620px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);">
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); padding: 36px 28px; text-align: center; border-bottom: 4px solid ${isDisciplinary ? '#dc2626' : '#059669'};">
+              <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 700; letter-spacing: 0.5px;">IPPIS HRMS &amp; PAYROLL</h1>
+              <p style="margin: 6px 0 0; color: #94a3b8; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Office of the Accountant-General of the Federation</p>
+            </td>
+          </tr>
+          <!-- Body Content -->
+          <tr>
+            <td style="padding: 36px 32px;">
+              <div style="background-color: ${isDisciplinary ? '#fef2f2' : '#f8fafc'}; border: 1px solid ${isDisciplinary ? '#fecaca' : '#e2e8f0'}; border-radius: 6px; padding: 8px 14px; display: inline-block; margin-bottom: 18px;">
+                <span style="color: ${isDisciplinary ? '#b91c1c' : '#334155'}; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                  &#9888; Official Notice: Termination of Employment
+                </span>
+              </div>
+              <h2 style="margin: 0 0 16px; color: #0f172a; font-size: 20px; font-weight: 600;">Dear ${fullName},</h2>
+              <p style="margin: 0 0 16px; color: #475569; font-size: 15px; line-height: 1.6;">
+                This letter conveys formal notification that your appointment as <strong>${position}</strong> in the Department of <strong>${department}</strong> under <strong>${mdaName}</strong> is hereby terminated, effective <strong>${terminationDate}</strong>.
+              </p>
+
+              <!-- Record Summary Card -->
+              <div style="background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; padding: 20px 24px; margin: 24px 0;">
+                <table role="presentation" width="100%" style="font-size: 14px; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 6px 0; color: #64748b; width: 40%;">IPPIS / Staff ID:</td>
+                    <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${employeeId}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 6px 0; color: #64748b;">Designation / Rank:</td>
+                    <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${position}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 6px 0; color: #64748b;">MDA / Ministry:</td>
+                    <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${mdaName}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 6px 0; color: #64748b;">Termination Type:</td>
+                    <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${typeLabel}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 6px 0; color: #64748b;">Effective Date:</td>
+                    <td style="padding: 6px 0; color: #b91c1c; font-weight: 700;">${terminationDate}</td>
+                  </tr>
+                  ${noticePeriod ? `
+                  <tr>
+                    <td style="padding: 6px 0; color: #64748b;">Notice Period:</td>
+                    <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${noticePeriod}</td>
+                  </tr>` : ""}
+                  ${terminationReason ? `
+                  <tr>
+                    <td style="padding: 6px 0; color: #64748b; vertical-align: top;">Reason / Grounds:</td>
+                    <td style="padding: 6px 0; color: #334155; line-height: 1.5;">${terminationReason}</td>
+                  </tr>` : ""}
+                </table>
+              </div>
+
+              <!-- Next Steps / Directives -->
+              <h3 style="margin: 24px 0 12px; color: #0f172a; font-size: 16px; font-weight: 600;">Required Exit Procedures</h3>
+              <ol style="margin: 0 0 24px; padding-left: 20px; color: #475569; font-size: 14px; line-height: 1.7;">
+                <li><strong>Asset Handover:</strong> Surrender all government and organizational assets, including your official staff identity card, security access credentials, files, and computer equipment to your Head of Department or designated administrative officer on or before your effective date.</li>
+                <li><strong>Terminal Benefits &amp; Final Remuneration:</strong> Your final earned salary, approved allowances, and any statutory severance entitlements will be reconciled by Payroll and disbursed in accordance with standard financial regulations.</li>
+                <li><strong>Pension Remittance:</strong> Your RSA contributions statement and Certificate of Service will be issued upon completion of exit clearance.</li>
+                <li><strong>System Deactivation:</strong> In accordance with federal data security protocols, your portal access and institutional email accounts will be revoked upon the effective termination date.</li>
+              </ol>
+
+              <div style="background-color: #f1f5f9; border-left: 4px solid #475569; border-radius: 4px; padding: 12px 16px; margin: 24px 0;">
+                <p style="margin: 0; color: #334155; font-size: 13px; line-height: 1.5;">
+                  For administrative enquiries, exit documentation, or pension clearance, please contact your MDA Human Resources department or write to <strong>${hrContactEmail}</strong>.
+                </p>
+              </div>
+
+              <p style="margin: 24px 0 0; color: #64748b; font-size: 13px; line-height: 1.5;">
+                Yours in public service,<br>
+                <strong>Department of Human Resources &amp; Personnel Records</strong><br>
+                ${mdaName}
+              </p>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; text-align: center;">
+              <p style="margin: 0 0 4px; color: #64748b; font-size: 12px; font-weight: 600;">
+                Integrated Personnel and Payroll Information System (IPPIS)
+              </p>
+              <p style="margin: 0 0 6px; color: #94a3b8; font-size: 12px;">
+                Office of the Accountant-General of the Federation &bull; Federal Republic of Nigeria
+              </p>
+              <p style="margin: 0; color: #cbd5e1; font-size: 11px;">
+                This is an official administrative record communication. Please keep a copy for your personal records.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+export async function sendTerminationEmail(payload: TerminationEmailPayload) {
+  const { to, fullName, employeeId, terminationType = "Standard Termination", terminationDate, terminationReason } = payload;
+  console.log(`[Termination Email] Sending termination notification to ${fullName} (${to}) for ID: ${employeeId}`);
+
+  const recipients = Array.from(
+    new Set([
+      to,
+      ...(to.endsWith("@ippis.gov.ng") ? [process.env.SMTP_USER || "taiwodele88@gmail.com"] : []),
+    ])
+  ).filter(Boolean);
+
+  const { user: smtpUser, pass: smtpPass } = getSmtpConfig();
+  const hasCredentials = Boolean(smtpUser && smtpPass);
+  if (!hasCredentials) {
+    console.warn(`[Termination Email] SMTP credentials not set, email skipped for: ${to}`);
+    return null;
+  }
+
+  const plainText = `Dear ${fullName},
+
+This serves as formal notification that your appointment (Staff/IPPIS ID: ${employeeId}) has been terminated effective ${terminationDate}.
+
+Termination Type: ${formatTerminationTypeLabel(terminationType)}
+${terminationReason ? `Reason: ${terminationReason}\n` : ''}
+
+Please report to your Departmental Human Resources / Establishment unit to complete your exit clearance and surrender all official property.
+
+Integrated Personnel and Payroll Information System (IPPIS)
+Office of the Accountant-General of the Federation
+Federal Republic of Nigeria`;
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"IPPIS HR Administration" <${process.env.SMTP_USER || "taiwodele88@gmail.com"}>`,
+      to: recipients.join(", "),
+      subject: `Official Notice: Termination of Employment - ${fullName} (${employeeId})`,
+      text: plainText,
+      html: generateTerminationEmailHtml(payload),
+    });
+
+    console.log(`[Termination Email] Sent successfully to ${recipients.join(", ")}. Message ID: ${info.messageId}`);
+    return info;
+  } catch (error: any) {
+    console.error(`[Termination Email] Failed to send email to ${recipients.join(", ")}:`, error);
+    return null;
+  }
+}
+
 
 /**
  * =========================================================================

@@ -129,3 +129,4 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     return withCors(req, { success: false, error: "Failed to fetch employee history", details: error?.message }, 500);
   }
 }
+

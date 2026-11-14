@@ -3,6 +3,7 @@ import { withCors, handleOptions } from "@/lib/cors";
 import { NextRequest } from "next/server";
 import { requirePermission, runAudited } from "@/lib/rbac";
 import { keepInScope, employeeInScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
+import { sendTerminationEmail } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 const sql = neon(process.env.DATABASE_URL!);
@@ -181,10 +182,47 @@ export async function POST(req: NextRequest) {
 
     await runAudited(req, auth.ctx, { action: "corehr.termination.created", targetType: "corehr.termination", details: {} }, []);
 
+    // Update the employee's status in nominal roll
+    await sql`
+      UPDATE employees
+      SET status = 'terminated', updated_at = NOW()
+      WHERE id = ${employee_id}
+    `;
+
+    // Fetch employee contact and MDA for official email dispatch
+    let emailSent = false;
+    const empDetails = await sql`
+      SELECT e.email, e.name, c.name AS mda_name, p.email AS p_email
+      FROM employees e
+      LEFT JOIN companies c ON c.id = e.company_id
+      LEFT JOIN personal_info p ON (p.registration_id = e.registration_id OR p.registration_id = e.id)
+      WHERE e.id = ${employee_id}
+      LIMIT 1
+    `;
+
+    const targetEmail = empDetails[0]?.email || empDetails[0]?.p_email;
+    if (targetEmail) {
+      sendTerminationEmail({
+        to: targetEmail,
+        fullName: employee_name || empDetails[0]?.name || "Civil Service Officer",
+        employeeId: employee_id,
+        position: position || undefined,
+        department: department || undefined,
+        mdaName: empDetails[0]?.mda_name || undefined,
+        terminationType: termination_type,
+        terminationReason: termination_reason,
+        terminationDate: termination_date,
+      }).catch((err) => {
+        console.error("Termination email dispatch failed:", err);
+      });
+      emailSent = true;
+    }
+
     return withCors(req, {
       success: true,
-      message: "Employee terminated successfully",
+      message: "Employee terminated successfully and disengagement notification queued",
       data: result[0],
+      emailSent,
     }, 201);
   } catch (error) {
     console.error("Error creating termination:", error);

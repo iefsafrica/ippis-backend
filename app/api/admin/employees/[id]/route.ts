@@ -1,9 +1,10 @@
-﻿import { neon } from "@neondatabase/serverless";
+import { neon } from "@neondatabase/serverless";
 import { NextRequest } from "next/server";
 import { withCors, handleOptions } from "@/lib/cors";
 import { requirePermission } from "@/lib/rbac";
 import { recordScope, inScope, OUT_OF_SCOPE } from "@/lib/mda-scope";
 import { clientIp } from "@/lib/rate-limit";
+import { sendTerminationEmail } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -452,6 +453,26 @@ async function handleUpdateEmployee(req: NextRequest, props: { params: Promise<{
           NOW()
         )
       `;
+    }
+
+    // If status transitioned to terminated, trigger official disengagement notification email
+    if (newStatus === "terminated" && String(current.status || "").toLowerCase() !== "terminated") {
+      const targetEmail = newEmail || current.email;
+      if (targetEmail) {
+        sendTerminationEmail({
+          to: targetEmail,
+          fullName: newFullName || current.firstname || "Civil Service Officer",
+          employeeId: String(currentRow.id),
+          position: newPos || current.position,
+          department: newDept || current.department,
+          mdaName: current.mda,
+          terminationType: typeof body.termination_type === "string" ? body.termination_type : "Standard Termination",
+          terminationReason: reason,
+          terminationDate: typeof body.termination_date === "string" ? body.termination_date : new Date().toISOString().slice(0, 10),
+        }).catch((err) => {
+          console.error("Automated status termination email failed:", err);
+        });
+      }
     }
 
     // Re-fetch updated employee
