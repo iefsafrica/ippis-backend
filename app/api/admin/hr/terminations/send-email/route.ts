@@ -129,3 +129,4 @@ export async function POST(req: NextRequest) {
     return withCors(req, { success: false, error: "Failed to send termination email", details: error?.message }, 500);
   }
 }
+
