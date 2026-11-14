@@ -15,10 +15,9 @@ export async function OPTIONS(req: NextRequest) {
 
 const money = (v: unknown) => (v == null || v === "" ? 0 : Math.round(Number(v) * 100) / 100);
 
-const CSV_TEMPLATE = `employee_id,deduction_type,amount,description,period
-IPPIS100234,loan_deduction,15000.00,Staff Cooperative Loan Repayment,2026-05
-IPPIS100235,health_insurance,5000.00,Voluntary NHIS Top-up,2026-05
-IPPIS100236,union_dues,2500.00,Civil Service Union Dues,2026-05`;
+const CSV_TEMPLATE = `ippis_number,employee_id,period,income_tax,pension,nhis,loan_deduction,other_deductions
+EMP97133,EMP97133,2026-05,25000,12000,5000,15000,0
+EMP54346,EMP54346,2026-05,18500,9500,4000,0,2500`;
 
 // GET: Template download or list imported deductions
 export async function GET(req: NextRequest) {
@@ -178,9 +177,15 @@ export async function POST(req: NextRequest) {
     `;
     const employeeMap = new Map<string, any>();
     for (const e of allEmployees) {
-      employeeMap.set(String(e.id).trim().toUpperCase(), e);
+      if (e.id) {
+        const idStr = String(e.id).trim().toUpperCase();
+        employeeMap.set(idStr, e);
+        employeeMap.set(idStr.replace(/[^a-zA-Z0-9]/g, ""), e);
+      }
       if (e.registration_id) {
-        employeeMap.set(String(e.registration_id).trim().toUpperCase(), e);
+        const regStr = String(e.registration_id).trim().toUpperCase();
+        employeeMap.set(regStr, e);
+        employeeMap.set(regStr.replace(/[^a-zA-Z0-9]/g, ""), e);
       }
     }
 
@@ -204,22 +209,47 @@ export async function POST(req: NextRequest) {
         normalizedRow[k.trim().toLowerCase().replace(/[\s-]+/g, "_")] = typeof v === "string" ? v.trim() : v;
       }
 
-      const empIdRaw = normalizedRow.employee_id || normalizedRow.employee_code || normalizedRow.ippis_no || normalizedRow.ippis_number || normalizedRow.staff_id;
-      if (!empIdRaw) {
-        errors.push({ row: rowNum, employee_id: "EMPTY", reason: "Missing employee_id" });
+      // Collect any possible employee identifier columns in order of preference
+      const candidates = [
+        normalizedRow.ippis_number,
+        normalizedRow.ippis_no,
+        normalizedRow.employee_id,
+        normalizedRow.employee_code,
+        normalizedRow.staff_id,
+        normalizedRow.id,
+      ].filter((c) => c !== undefined && c !== null && String(c).trim() !== "");
+
+      if (candidates.length === 0) {
+        errors.push({ row: rowNum, employee_id: "EMPTY", reason: "Missing employee identifier (ippis_number or employee_id)" });
         return;
       }
 
-      const empId = String(empIdRaw).trim().toUpperCase();
-      const emp = employeeMap.get(empId);
+      let emp = null;
+      let matchedCandidate = "";
+      for (const cand of candidates) {
+        const cStr = String(cand).trim().toUpperCase();
+        const cClean = cStr.replace(/[^a-zA-Z0-9]/g, "");
+        emp = employeeMap.get(cStr) || employeeMap.get(cClean);
+        if (emp) {
+          matchedCandidate = String(cand);
+          break;
+        }
+      }
 
       if (!emp) {
-        errors.push({ row: rowNum, employee_id: empIdRaw, reason: "Employee not found on nominal roll" });
+        const availableSamples = allEmployees.slice(0, 3).map((e: any) => e.id).join(", ");
+        errors.push({
+          row: rowNum,
+          employee_id: String(candidates[0]),
+          reason: `Employee '${candidates[0]}' not found on nominal roll (available sample IDs: ${availableSamples || "none"})`,
+        });
         return;
       }
 
-      if (!inScope(sc, emp.company_id, emp.department_id)) {
-        errors.push({ row: rowNum, employee_id: empIdRaw, reason: OUT_OF_SCOPE });
+      // Allow if global scope, in scope, or employee has no company_id yet (unlinked employee)
+      const isAllowed = sc.all || emp.company_id == null || inScope(sc, emp.company_id, emp.department_id);
+      if (!isAllowed) {
+        errors.push({ row: rowNum, employee_id: String(matchedCandidate || candidates[0]), reason: OUT_OF_SCOPE });
         return;
       }
 
@@ -231,9 +261,20 @@ export async function POST(req: NextRequest) {
         { col: "loan_deduction", type: "loan_deduction", label: "Loan Deduction" },
         { col: "loan", type: "loan_deduction", label: "Loan Deduction" },
         { col: "cooperative", type: "loan_deduction", label: "Staff Cooperative" },
+        { col: "staff_loan", type: "loan_deduction", label: "Staff Loan" },
         { col: "health_insurance", type: "health_insurance", label: "Health Insurance" },
+        { col: "nhis", type: "health_insurance", label: "NHIS" },
+        { col: "health", type: "health_insurance", label: "Health Insurance" },
         { col: "income_tax", type: "income_tax", label: "PAYE Tax" },
+        { col: "tax", type: "income_tax", label: "PAYE Tax" },
+        { col: "paye", type: "income_tax", label: "PAYE Tax" },
         { col: "provident_fund", type: "provident_fund", label: "Pension Contribution" },
+        { col: "pension", type: "provident_fund", label: "Pension Contribution" },
+        { col: "pencom", type: "provident_fund", label: "Pension Contribution" },
+        { col: "other_deductions", type: "other_deductions", label: "Other Deductions" },
+        { col: "other", type: "other_deductions", label: "Other Deductions" },
+        { col: "union_dues", type: "union_dues", label: "Union Dues" },
+        { col: "union", type: "union_dues", label: "Union Dues" },
       ];
 
       let addedFromMatrix = false;
@@ -261,13 +302,13 @@ export async function POST(req: NextRequest) {
       const amtRaw = normalizedRow.amount || normalizedRow.deduction_amount || normalizedRow.value;
 
       if (amtRaw === undefined || amtRaw === null || amtRaw === "") {
-        errors.push({ row: rowNum, employee_id: empIdRaw, reason: "Missing or invalid deduction amount" });
+        errors.push({ row: rowNum, employee_id: String(matchedCandidate || candidates[0]), reason: "Missing or invalid deduction amount" });
         return;
       }
 
       const parsedAmt = Number(String(amtRaw).replace(/,/g, ""));
       if (isNaN(parsedAmt) || parsedAmt <= 0) {
-        errors.push({ row: rowNum, employee_id: empIdRaw, reason: "Amount must be a positive number" });
+        errors.push({ row: rowNum, employee_id: String(matchedCandidate || candidates[0]), reason: "Amount must be a positive number" });
         return;
       }
 
@@ -299,11 +340,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (validDeductions.length === 0) {
+      const firstError = errors[0]
+        ? `Row ${errors[0].row} (${errors[0].employee_id}): ${errors[0].reason}`
+        : "No rows matched active employees";
       return withCors(
         req,
         {
           success: false,
-          error: "No valid deduction rows found to import",
+          error: `No valid deduction rows found to import. ${firstError}`,
+          message: `No valid deduction rows found to import. ${firstError}`,
           errors,
         },
         400
